@@ -53,6 +53,22 @@ function evictOldest() {
   }
 }
 
+// Scryfall allows <10 requests/second and network-blocks offenders; space all
+// requests ~120ms apart and retry once after a pause if we still get a 429.
+let nextSlot = 0
+async function scryfetch(url, options) {
+  const now = Date.now()
+  const slot = Math.max(now, nextSlot)
+  nextSlot = slot + 120
+  if (slot > now) await new Promise((r) => setTimeout(r, slot - now))
+  let res = await fetch(url, options)
+  if (res.status === 429) {
+    await new Promise((r) => setTimeout(r, 2500))
+    res = await fetch(url, options)
+  }
+  return res
+}
+
 // "Legendary Creature — Human Wizard" → ['Legendary', 'Creature']
 function parseTypes(typeLine) {
   return (typeLine ?? '')
@@ -100,7 +116,7 @@ export async function searchCards({ name, type, colors, page = 1 }) {
   const cached = cacheGet(key)
   if (cached) return cached
 
-  const res = await fetch(`${API_BASE}/cards/search?${params}`)
+  const res = await scryfetch(`${API_BASE}/cards/search?${params}`)
   if (res.status === 404) {
     // Scryfall returns 404 (not an empty list) when nothing matches.
     cacheSet(key, [])
@@ -119,6 +135,50 @@ export async function searchCards({ name, type, colors, page = 1 }) {
   return result
 }
 
+// Batch exact-name lookup via Scryfall's collection endpoint (75 per request) —
+// resolves a whole AI deck list in 1-2 requests instead of ~99 rapid-fire GETs,
+// which would trip Scryfall's rate limit. Returns found cards keyed by the
+// lowercased requested name, plus the names that need a fuzzy retry.
+export async function findCardsByNames(names) {
+  const found = new Map()
+  const missing = []
+
+  const toFetch = []
+  for (const name of names) {
+    const cached = cacheGet(`named:${name.toLowerCase()}`)
+    if (cached) found.set(name.toLowerCase(), cached)
+    else toFetch.push(name)
+  }
+
+  for (let i = 0; i < toFetch.length; i += 75) {
+    const chunk = toFetch.slice(i, i + 75)
+    const res = await scryfetch(`${API_BASE}/cards/collection`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifiers: chunk.map((name) => ({ name })) }),
+    })
+    if (!res.ok) {
+      throw new Error(`Card lookup failed (${res.status})`)
+    }
+    const { data } = await res.json()
+    const cards = data.map(normalizeCard)
+    for (const requested of chunk) {
+      const lower = requested.toLowerCase()
+      // Double-faced cards come back as "Front // Back" even when asked by front name.
+      const card = cards.find(
+        (c) => c.name.toLowerCase() === lower || c.name.split(' // ')[0].toLowerCase() === lower,
+      )
+      if (card) {
+        found.set(lower, card)
+        cacheSet(`named:${lower}`, card)
+      } else {
+        missing.push(requested)
+      }
+    }
+  }
+  return { found, missing }
+}
+
 // Exact-name lookup with fuzzy fallback (tolerates AI misspellings); used to
 // resolve AI-suggested deck lists to real cards.
 export async function findCardByName(name) {
@@ -127,7 +187,7 @@ export async function findCardByName(name) {
   if (cached) return cached
 
   for (const mode of ['exact', 'fuzzy']) {
-    const res = await fetch(`${API_BASE}/cards/named?${mode}=${encodeURIComponent(name)}`)
+    const res = await scryfetch(`${API_BASE}/cards/named?${mode}=${encodeURIComponent(name)}`)
     if (res.ok) {
       const card = normalizeCard(await res.json())
       cacheSet(key, card)

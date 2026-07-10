@@ -1,6 +1,6 @@
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '../firebase'
-import { findCardByName } from './mtg'
+import { findCardByName, findCardsByNames } from './mtg'
 
 const BASICS = { W: 'Plains', U: 'Island', B: 'Swamp', R: 'Mountain', G: 'Forest' }
 
@@ -50,14 +50,31 @@ export async function buildDeckWithAI(prompt, format, currentDeck, onProgress) {
     if (!commander) unresolved.push(aiCommanderName)
   }
 
+  // Resolve the whole list in batches (1-2 requests), then fuzzy-retry only
+  // the names Scryfall didn't recognize exactly.
+  onProgress?.(`Looking up ${cards.length} cards…`)
+  const clampCount = (count) => Math.min(Math.max(count, 1), 99)
   let additions = []
-  for (let i = 0; i < cards.length; i++) {
-    const { name, count } = cards[i]
-    onProgress?.(`Looking up ${name}… (${i + 1}/${cards.length})`)
+  let missing = []
+  try {
+    const batch = await findCardsByNames(cards.map((c) => c.name))
+    for (const { name, count } of cards) {
+      const card = batch.found.get(name.toLowerCase())
+      if (card) additions.push({ ...card, count: clampCount(count) })
+    }
+    missing = batch.missing
+  } catch {
+    // Batch lookup failed entirely — fall back to resolving one by one.
+    missing = cards.map((c) => c.name)
+  }
+  const countByName = new Map(cards.map((c) => [c.name, c.count]))
+  for (let i = 0; i < missing.length; i++) {
+    const name = missing[i]
+    onProgress?.(`Searching for ${name}… (${i + 1}/${missing.length})`)
     try {
       const card = await findCardByName(name)
       if (card) {
-        additions.push({ ...card, count: Math.min(Math.max(count, 1), 99) })
+        additions.push({ ...card, count: clampCount(countByName.get(name) ?? 1) })
       } else {
         unresolved.push(name)
       }
