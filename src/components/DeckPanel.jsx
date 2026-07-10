@@ -1,4 +1,5 @@
 import ManaCurve from './ManaCurve'
+import FormatChecks from './FormatChecks'
 
 const TYPE_ORDER = ['Creature', 'Planeswalker', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Battle', 'Land', 'Other']
 
@@ -9,7 +10,14 @@ function primaryType(card) {
   return 'Other'
 }
 
-function CardRow({ card, onChangeCount, onToggleBoard, onRemove }) {
+function canBeCommander(card) {
+  return (
+    card.types?.includes('Legendary') &&
+    (card.types?.includes('Creature') || /can be your commander/i.test(card.text ?? ''))
+  )
+}
+
+function CardRow({ card, isCommanderFormat, isTheCommander, onSetCommander, onChangeCount, onToggleBoard, onRemove }) {
   return (
     <li className="deck-row">
       <span className="deck-count">
@@ -19,6 +27,15 @@ function CardRow({ card, onChangeCount, onToggleBoard, onRemove }) {
       </span>
       <span className="deck-name" title={`${card.type} — ${card.text}`}>{card.name}</span>
       <span className="deck-mana">{card.manaCost}</span>
+      {isCommanderFormat && canBeCommander(card) && (
+        <button
+          className={`icon-btn crown ${isTheCommander ? 'active' : ''}`}
+          title={isTheCommander ? 'Remove as commander' : 'Make commander'}
+          onClick={() => onSetCommander(card)}
+        >
+          ♛
+        </button>
+      )}
       <button className="icon-btn" title={card.board === 'side' ? 'Move to main deck' : 'Move to sideboard'} onClick={() => onToggleBoard(card)}>
         ⇄
       </button>
@@ -30,6 +47,8 @@ function CardRow({ card, onChangeCount, onToggleBoard, onRemove }) {
 export default function DeckPanel({
   deck,
   onRename,
+  onSetFormat,
+  onSetCommander,
   onChangeCount,
   onToggleBoard,
   onRemove,
@@ -38,19 +57,22 @@ export default function DeckPanel({
   saving,
   user,
 }) {
+  const format = deck.format ?? 'standard'
+  const isCommanderFormat = format === 'commander'
+  const commander = isCommanderFormat
+    ? deck.cards.find((c) => c.id === deck.commanderId)
+    : null
+
   const main = deck.cards.filter((c) => c.board !== 'side')
   const side = deck.cards.filter((c) => c.board === 'side')
-  const mainCount = main.reduce((n, c) => n + c.count, 0)
   const sideCount = side.reduce((n, c) => n + c.count, 0)
-
-  const overFour = deck.cards.filter(
-    (c) => c.count > 4 && !c.types?.includes('Land') && !/Basic/.test(c.type),
-  )
 
   const groups = TYPE_ORDER.map((t) => ({
     type: t,
-    cards: main.filter((c) => primaryType(c) === t),
+    cards: main.filter((c) => c !== commander && primaryType(c) === t),
   })).filter((g) => g.cards.length)
+
+  const rowProps = { isCommanderFormat, onSetCommander, onChangeCount, onToggleBoard, onRemove }
 
   return (
     <aside className="deck-panel">
@@ -60,15 +82,38 @@ export default function DeckPanel({
         onChange={(e) => onRename(e.target.value)}
         placeholder="Deck name"
       />
-      <div className="deck-meta">
-        <span>{mainCount} main</span>
-        <span>{sideCount} side</span>
-      </div>
+      <select className="input format-select" value={format} onChange={(e) => onSetFormat(e.target.value)}>
+        <option value="standard">60-Card (Standard / Casual)</option>
+        <option value="commander">Commander (EDH)</option>
+      </select>
 
-      {overFour.length > 0 && (
-        <p className="warning">
-          ⚠ More than 4 copies: {overFour.map((c) => c.name).join(', ')}
-        </p>
+      <FormatChecks format={format} main={main} commander={commander} />
+
+      {isCommanderFormat && (
+        <details className="rules-ref">
+          <summary>Commander rules &amp; basics</summary>
+          <ul>
+            <li>Exactly 100 cards including your commander; every other card is a single copy (basic lands excepted).</li>
+            <li>Your commander is a legendary creature — or a card that says it "can be your commander".</li>
+            <li>Every card's color identity (mana symbols anywhere on the card) must fit within your commander's color identity.</li>
+            <li>You start at 40 life. Your commander starts in the command zone and costs {'{2}'} more for each time it has been cast from there.</li>
+            <li>21 combat damage from a single commander eliminates a player.</li>
+            <li>It's a multiplayer format — decks aim for fun, resilient games, usually with ~36–38 lands and plenty of ramp and card draw.</li>
+          </ul>
+        </details>
+      )}
+
+      {isCommanderFormat && (
+        <div className="deck-group commander-slot">
+          <h4>Commander</h4>
+          {commander ? (
+            <ul>
+              <CardRow card={commander} isTheCommander {...rowProps} />
+            </ul>
+          ) : (
+            <p className="muted">Add a legendary creature, then crown it with ♛.</p>
+          )}
+        </div>
       )}
 
       <ManaCurve cards={main} />
@@ -78,7 +123,7 @@ export default function DeckPanel({
           <h4>{g.type} ({g.cards.reduce((n, c) => n + c.count, 0)})</h4>
           <ul>
             {g.cards.map((c) => (
-              <CardRow key={c.id} card={c} onChangeCount={onChangeCount} onToggleBoard={onToggleBoard} onRemove={onRemove} />
+              <CardRow key={c.id} card={c} {...rowProps} />
             ))}
           </ul>
         </div>
@@ -89,7 +134,7 @@ export default function DeckPanel({
           <h4>Sideboard ({sideCount})</h4>
           <ul>
             {side.map((c) => (
-              <CardRow key={c.id} card={c} onChangeCount={onChangeCount} onToggleBoard={onToggleBoard} onRemove={onRemove} />
+              <CardRow key={c.id} card={c} {...rowProps} />
             ))}
           </ul>
         </div>

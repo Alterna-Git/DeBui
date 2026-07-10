@@ -2,7 +2,7 @@
 
 A Magic: The Gathering deck builder built with React + Vite and Firebase.
 
-- **Card search** via [api.magicthegathering.io](https://docs.magicthegathering.io/), with 24h localStorage caching to stay under the API rate limit (5000 req/hr)
+- **Card search** via the [Scryfall API](https://scryfall.com/docs/api) (the same data source Moxfield uses — every set, updated within hours of release), with 24h localStorage caching
 - **Google sign-in** (Firebase Auth) and per-user deck storage (Firestore)
 - **Deck panel** with counts, main/sideboard, type grouping, mana curve, and 4-copy warnings
 - **AI Builder**: describe a deck, and an OpenAI-powered Cloud Function drafts a full list

@@ -1,9 +1,9 @@
-// Client for https://docs.magicthegathering.io/ (api.magicthegathering.io/v1)
-// Search results are cached in localStorage for 24h to stay well under the
-// API's 5000 requests/hour rate limit.
+// Card data client for the Scryfall API (https://scryfall.com/docs/api) —
+// the same source Moxfield uses. Free, no key, updated within hours of new
+// set releases. Results are cached in localStorage for 24h.
 
-const API_BASE = 'https://api.magicthegathering.io/v1'
-const CACHE_PREFIX = 'mtg-cache:'
+const API_BASE = 'https://api.scryfall.com'
+const CACHE_PREFIX = 'scry-cache-v2:'
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000
 
 function cacheGet(key) {
@@ -53,68 +53,89 @@ function evictOldest() {
   }
 }
 
-// The API returns every printing of a card; collapse to one per card name,
-// preferring printings that have an image.
-function dedupeByName(cards) {
-  const byName = new Map()
-  for (const card of cards) {
-    const existing = byName.get(card.name)
-    if (!existing || (!existing.imageUrl && card.imageUrl)) {
-      byName.set(card.name, card)
-    }
-  }
-  return [...byName.values()]
+// "Legendary Creature — Human Wizard" → ['Legendary', 'Creature']
+function parseTypes(typeLine) {
+  return (typeLine ?? '')
+    .split('//')[0]
+    .split('—')[0]
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
 }
 
-// Gatherer serves imageUrl as http://; upgrade so images load on https pages.
+// Double-faced/split cards keep most data on card_faces instead of the root.
 function normalizeCard(card) {
+  const face = card.card_faces?.[0]
   return {
     id: card.id,
     name: card.name,
-    manaCost: card.manaCost ?? '',
+    manaCost: card.mana_cost ?? face?.mana_cost ?? '',
     cmc: card.cmc ?? 0,
-    type: card.type ?? '',
-    types: card.types ?? [],
-    colors: card.colors ?? [],
-    rarity: card.rarity ?? '',
-    setName: card.setName ?? '',
-    text: card.text ?? '',
-    imageUrl: card.imageUrl ? card.imageUrl.replace(/^http:\/\//, 'https://') : null,
+    type: card.type_line ?? face?.type_line ?? '',
+    types: parseTypes(card.type_line ?? face?.type_line),
+    colors: card.colors ?? face?.colors ?? [],
+    colorIdentity: card.color_identity ?? [],
+    commanderLegal: card.legalities ? card.legalities.commander === 'legal' : undefined,
+    rarity: card.rarity ? card.rarity[0].toUpperCase() + card.rarity.slice(1) : '',
+    setName: card.set_name ?? '',
+    text: card.oracle_text ?? face?.oracle_text ?? '',
+    imageUrl: card.image_uris?.normal ?? face?.image_uris?.normal ?? null,
   }
 }
 
-async function fetchCards(params) {
-  const query = new URLSearchParams(params).toString()
-  const cached = cacheGet(query)
+export async function searchCards({ name, type, colors, page = 1 }) {
+  const terms = []
+  if (name) terms.push(name)
+  if (type) terms.push(`type:"${type}"`)
+  if (colors?.length) terms.push(`color:${colors.join('')}`)
+  if (!terms.length) return []
+
+  const params = new URLSearchParams({
+    q: terms.join(' '),
+    unique: 'cards',
+    order: 'name',
+    page: String(page),
+  })
+  const key = `search:${params.toString()}`
+  const cached = cacheGet(key)
   if (cached) return cached
 
-  const res = await fetch(`${API_BASE}/cards?${query}`)
+  const res = await fetch(`${API_BASE}/cards/search?${params}`)
+  if (res.status === 404) {
+    // Scryfall returns 404 (not an empty list) when nothing matches.
+    cacheSet(key, [])
+    return []
+  }
   if (res.status === 429) {
-    throw new Error('Card API rate limit reached — please wait a minute and try again.')
+    throw new Error('Card search rate limit reached — please wait a moment and try again.')
   }
   if (!res.ok) {
-    throw new Error(`Card search failed (${res.status})`)
+    const body = await res.json().catch(() => null)
+    throw new Error(body?.details ?? `Card search failed (${res.status})`)
   }
-  const { cards } = await res.json()
-  const result = dedupeByName(cards.map(normalizeCard))
-  cacheSet(query, result)
+  const { data } = await res.json()
+  const result = data.map(normalizeCard)
+  cacheSet(key, result)
   return result
 }
 
-export function searchCards({ name, type, colors, page = 1 }) {
-  const params = { pageSize: 100, page }
-  if (name) params.name = name
-  if (type) params.type = type
-  if (colors?.length) params.colors = colors.join(',')
-  return fetchCards(params)
-}
-
-// Exact-name lookup, used to resolve AI-suggested deck lists to real cards.
+// Exact-name lookup with fuzzy fallback (tolerates AI misspellings); used to
+// resolve AI-suggested deck lists to real cards.
 export async function findCardByName(name) {
-  const cards = await fetchCards({ name: `"${name}"`, pageSize: 20 })
-  return (
-    cards.find((c) => c.name.toLowerCase() === name.toLowerCase()) ??
-    cards[0] ??
-    null
-  )
+  const key = `named:${name.toLowerCase()}`
+  const cached = cacheGet(key)
+  if (cached) return cached
+
+  for (const mode of ['exact', 'fuzzy']) {
+    const res = await fetch(`${API_BASE}/cards/named?${mode}=${encodeURIComponent(name)}`)
+    if (res.ok) {
+      const card = normalizeCard(await res.json())
+      cacheSet(key, card)
+      return card
+    }
+    if (res.status !== 404) {
+      throw new Error(`Card lookup failed (${res.status})`)
+    }
+  }
+  return null
 }

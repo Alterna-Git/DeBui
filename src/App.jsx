@@ -8,7 +8,7 @@ import DeckPanel from './components/DeckPanel'
 import MyDecks from './components/MyDecks'
 import AiBuilder from './components/AiBuilder'
 
-const EMPTY_DECK = { id: null, name: 'Untitled Deck', cards: [] }
+const EMPTY_DECK = { id: null, name: 'Untitled Deck', format: 'standard', commanderId: null, cards: [] }
 
 export default function App() {
   const [user, setUser] = useState(null)
@@ -50,7 +50,22 @@ export default function App() {
   }
 
   function removeCard(card) {
-    setDeck((cur) => ({ ...cur, cards: cur.cards.filter((c) => c !== card) }))
+    setDeck((cur) => ({
+      ...cur,
+      commanderId: cur.commanderId === card.id ? null : cur.commanderId,
+      cards: cur.cards.filter((c) => c !== card),
+    }))
+  }
+
+  function setFormat(format) {
+    setDeck((cur) => ({ ...cur, format }))
+  }
+
+  function setCommander(card) {
+    setDeck((cur) => ({
+      ...cur,
+      commanderId: cur.commanderId === card.id ? null : card.id,
+    }))
   }
 
   async function handleSave() {
@@ -66,11 +81,16 @@ export default function App() {
     }
   }
 
-  function handleAiDeck(deckName, cards) {
+  function handleAiDeck(deckName, cards, commander) {
+    const rest = cards
+      .filter((c) => c.id !== commander?.id)
+      .map((c) => ({ ...c, board: 'main' }))
     setDeck({
       id: null,
       name: deckName || 'AI Deck',
-      cards: cards.map((c) => ({ ...c, board: 'main' })),
+      format: deck.format ?? 'standard',
+      commanderId: commander?.id ?? null,
+      cards: commander ? [{ ...commander, count: 1, board: 'main' }, ...rest] : rest,
     })
   }
 
@@ -95,7 +115,13 @@ export default function App() {
       <main className="app-main">
         <div className="app-content">
           {view === 'search' && <CardSearch onAddCard={addCard} />}
-          {view === 'ai' && <AiBuilder user={user} onDeckBuilt={(name, cards) => { handleAiDeck(name, cards); setView('search') }} />}
+          {view === 'ai' && (
+            <AiBuilder
+              user={user}
+              format={deck.format ?? 'standard'}
+              onDeckBuilt={(name, cards, commander) => { handleAiDeck(name, cards, commander); setView('search') }}
+            />
+          )}
           {view === 'decks' && (
             <MyDecks
               user={user}
@@ -108,6 +134,8 @@ export default function App() {
           user={user}
           saving={saving}
           onRename={(name) => setDeck((cur) => ({ ...cur, name }))}
+          onSetFormat={setFormat}
+          onSetCommander={setCommander}
           onChangeCount={changeCount}
           onToggleBoard={toggleBoard}
           onRemove={removeCard}

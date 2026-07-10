@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { buildDeckWithAI } from '../api/ai'
 
-export default function AiBuilder({ user, onDeckBuilt }) {
+export default function AiBuilder({ user, format, onDeckBuilt }) {
   const [prompt, setPrompt] = useState('')
   const [status, setStatus] = useState(null)
   const [error, setError] = useState(null)
@@ -14,8 +14,8 @@ export default function AiBuilder({ user, onDeckBuilt }) {
     setError(null)
     setStatus('Asking the AI for a deck list…')
     try {
-      const { deckName, cards, unresolved } = await buildDeckWithAI(prompt, setStatus)
-      onDeckBuilt(deckName, cards)
+      const { deckName, commander, cards, unresolved } = await buildDeckWithAI(prompt, format, setStatus)
+      onDeckBuilt(deckName, cards, commander)
       setStatus(
         unresolved.length
           ? `Done — ${cards.length} cards added. Couldn't find: ${unresolved.join(', ')}`
@@ -35,8 +35,10 @@ export default function AiBuilder({ user, onDeckBuilt }) {
     <section className="ai-builder">
       <h3>AI Deck Builder</h3>
       <p className="muted">
-        Describe the deck you want — archetype, colors, format, budget, favorite cards —
-        and the AI will draft a full deck list for you to edit.
+        Describe the deck you want — archetype, colors, budget, favorite cards — and the
+        AI will draft a full{' '}
+        <strong>{format === 'commander' ? '100-card Commander deck (with a commander)' : '60-card deck'}</strong>{' '}
+        for you to edit. Switch the format in the deck panel.
       </p>
       <form onSubmit={build}>
         <textarea
