@@ -4,6 +4,23 @@ import { findCardByName, findCardsByNames } from './mtg'
 
 const BASICS = { W: 'Plains', U: 'Island', B: 'Swamp', R: 'Mountain', G: 'Forest' }
 
+// Sends the current deck to the coach function and returns its structured critique.
+export async function analyzeDeckWithAI(deck) {
+  const main = deck.cards.filter((c) => c.board !== 'side')
+  const commander = deck.format === 'commander'
+    ? main.find((c) => c.id === deck.commanderId)
+    : null
+  const call = httpsCallable(functions, 'analyzeDeck', { timeout: 300_000 })
+  const { data } = await call({
+    format: deck.format ?? 'standard',
+    commanderName: commander?.name ?? null,
+    cards: main
+      .filter((c) => c !== commander)
+      .map((c) => ({ name: c.name, count: c.count })),
+  })
+  return data
+}
+
 function isBasicLand(card) {
   return card.types?.includes('Basic')
 }

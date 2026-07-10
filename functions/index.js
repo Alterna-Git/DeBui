@@ -44,6 +44,106 @@ Respond with JSON only, matching this shape:
 where "cards" lists the cards other than the commander (basic lands may use count > 1;
 never repeat the commander).`
 
+const SYSTEM_PROMPT_COACH = `You are a professional Magic: The Gathering deck coach.
+Analyze the deck the user provides and give honest, specific, actionable advice for the
+stated format. For Commander decks, respect color identity and singleton in every
+suggestion. "cut" must name a card actually in the deck; "add" must be a real card,
+spelled exactly as printed, legal in the format, and (for Commander) within the
+commander's color identity.
+Respond with JSON only, matching this shape:
+{
+  "rating": 7,
+  "archetype": "short description of what the deck is trying to do",
+  "strengths": ["up to 4 short points"],
+  "weaknesses": ["up to 4 short points"],
+  "counts": {"lands": 0, "ramp": 0, "cardDraw": 0, "removal": 0, "boardWipes": 0},
+  "targets": {"lands": 0, "ramp": 0, "cardDraw": 0, "removal": 0, "boardWipes": 0},
+  "suggestions": [{"cut": "Card In Deck", "add": "Better Card", "reason": "one sentence"}],
+  "plan": ["3-5 ordered steps for how to test and keep improving this deck"]
+}
+"counts" is what the deck currently has; "targets" is what this archetype wants.
+Give up to 8 suggestions, most impactful first.`
+
+export const analyzeDeck = onCall(
+  { secrets: [openaiApiKey], timeoutSeconds: 300 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Sign in to use the deck coach.')
+    }
+    const cards = (Array.isArray(request.data?.cards) ? request.data.cards.slice(0, 200) : [])
+      .filter((c) => typeof c?.name === 'string' && c.name.trim())
+      .map((c) => ({
+        name: c.name.trim().slice(0, 200),
+        count: Number.isFinite(c.count) ? Math.min(Math.max(Math.round(c.count), 1), 99) : 1,
+      }))
+    if (!cards.length) {
+      throw new HttpsError('invalid-argument', 'The deck is empty — add some cards first.')
+    }
+    const format = request.data?.format === 'commander' ? 'Commander (EDH)' : '60-card casual/constructed'
+    const commanderName =
+      typeof request.data?.commanderName === 'string' && request.data.commanderName.trim()
+        ? request.data.commanderName.trim().slice(0, 200)
+        : null
+
+    const userContent = [
+      `Format: ${format}`,
+      commanderName ? `Commander: ${commanderName}` : null,
+      `Deck list:\n${cards.map((c) => `${c.count} ${c.name}`).join('\n')}`,
+    ].filter(Boolean).join('\n\n')
+
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${openaiApiKey.value()}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-5.5',
+        reasoning_effort: 'medium',
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT_COACH },
+          { role: 'user', content: userContent },
+        ],
+      }),
+    })
+    if (!res.ok) {
+      const body = await res.text()
+      console.error('OpenAI error', res.status, body)
+      throw new HttpsError('internal', 'The AI service is unavailable right now — try again shortly.')
+    }
+    const completion = await res.json()
+    let parsed
+    try {
+      parsed = JSON.parse(completion.choices[0].message.content)
+    } catch {
+      throw new HttpsError('internal', 'The AI returned an unreadable analysis — try again.')
+    }
+
+    const strings = (v, max) => (Array.isArray(v) ? v.filter((s) => typeof s === 'string').slice(0, max) : [])
+    const nums = (v) => (v && typeof v === 'object'
+      ? Object.fromEntries(Object.entries(v).filter(([, n]) => Number.isFinite(n)))
+      : {})
+    return {
+      rating: Number.isFinite(parsed.rating) ? Math.min(Math.max(parsed.rating, 1), 10) : null,
+      archetype: typeof parsed.archetype === 'string' ? parsed.archetype.slice(0, 300) : '',
+      strengths: strings(parsed.strengths, 4),
+      weaknesses: strings(parsed.weaknesses, 4),
+      counts: nums(parsed.counts),
+      targets: nums(parsed.targets),
+      suggestions: (Array.isArray(parsed.suggestions) ? parsed.suggestions : [])
+        .filter((s) => typeof s?.cut === 'string' && typeof s?.add === 'string')
+        .map((s) => ({
+          cut: s.cut.trim().slice(0, 200),
+          add: s.add.trim().slice(0, 200),
+          reason: typeof s.reason === 'string' ? s.reason.slice(0, 400) : '',
+        }))
+        .slice(0, 8),
+      plan: strings(parsed.plan, 5),
+    }
+  },
+)
+
 export const buildDeckWithAI = onCall(
   { secrets: [openaiApiKey], timeoutSeconds: 300 },
   async (request) => {

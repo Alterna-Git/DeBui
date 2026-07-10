@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react'
 import { onAuthStateChanged } from 'firebase/auth'
 import { auth } from './firebase'
 import { saveDeck } from './api/decks'
+import { findCardByName } from './api/mtg'
 import AuthButton from './components/AuthButton'
 import CardSearch from './components/CardSearch'
 import DeckPanel from './components/DeckPanel'
 import MyDecks from './components/MyDecks'
 import AiBuilder from './components/AiBuilder'
+import DeckCoach from './components/DeckCoach'
 
 const EMPTY_DECK = { id: null, name: 'Untitled Deck', format: 'standard', commanderId: null, cards: [] }
 
@@ -81,6 +83,30 @@ export default function App() {
     }
   }
 
+  // Coach swap: remove `cutName` from the main deck and add `addName` in its place.
+  async function applySwap(cutName, addName) {
+    try {
+      const card = await findCardByName(addName)
+      if (!card) return false
+      setDeck((cur) => {
+        const cut = cur.cards.find(
+          (c) => c.board !== 'side' && c.name.toLowerCase() === cutName.toLowerCase(),
+        )
+        const rest = cut ? cur.cards.filter((c) => c !== cut) : [...cur.cards]
+        const alreadyIn = rest.some((c) => c.id === card.id && c.board !== 'side')
+        const count = cur.format === 'commander' ? 1 : Math.min(cut?.count ?? 1, 4)
+        return {
+          ...cur,
+          commanderId: cut && cur.commanderId === cut.id ? null : cur.commanderId,
+          cards: alreadyIn ? rest : [...rest, { ...card, count, board: 'main' }],
+        }
+      })
+      return true
+    } catch {
+      return false
+    }
+  }
+
   function handleAiDeck(deckName, cards, commander) {
     setDeck((cur) => ({
       ...cur,
@@ -105,6 +131,9 @@ export default function App() {
           <button className={view === 'ai' ? 'tab active' : 'tab'} onClick={() => setView('ai')}>
             AI Builder
           </button>
+          <button className={view === 'coach' ? 'tab active' : 'tab'} onClick={() => setView('coach')}>
+            Coach
+          </button>
           <button className={view === 'decks' ? 'tab active' : 'tab'} onClick={() => setView('decks')}>
             My Decks
           </button>
@@ -125,6 +154,7 @@ export default function App() {
               onDeckBuilt={(name, cards, commander) => { handleAiDeck(name, cards, commander); setView('search') }}
             />
           )}
+          {view === 'coach' && <DeckCoach user={user} deck={deck} onApplySwap={applySwap} />}
           {view === 'decks' && (
             <MyDecks
               user={user}
