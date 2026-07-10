@@ -82,16 +82,16 @@ export default function App() {
   }
 
   function handleAiDeck(deckName, cards, commander) {
-    const rest = cards
-      .filter((c) => c.id !== commander?.id)
-      .map((c) => ({ ...c, board: 'main' }))
-    setDeck({
-      id: null,
-      name: deckName || 'AI Deck',
-      format: deck.format ?? 'standard',
+    setDeck((cur) => ({
+      ...cur,
+      name: !cur.name || cur.name === 'Untitled Deck' ? deckName || 'AI Deck' : cur.name,
       commanderId: commander?.id ?? null,
-      cards: commander ? [{ ...commander, count: 1, board: 'main' }, ...rest] : rest,
-    })
+      cards: [
+        ...(commander ? [{ ...commander, count: 1, board: 'main' }] : []),
+        ...cards.filter((c) => c.id !== commander?.id).map((c) => ({ ...c, board: 'main' })),
+        ...cur.cards.filter((c) => c.board === 'side'),
+      ],
+    }))
   }
 
   return (
@@ -109,6 +109,9 @@ export default function App() {
             My Decks
           </button>
         </nav>
+        <a className="btn android-link" href="/debui.apk" download>
+          ▾ Android app
+        </a>
         <AuthButton user={user} />
       </header>
 
@@ -118,7 +121,7 @@ export default function App() {
           {view === 'ai' && (
             <AiBuilder
               user={user}
-              format={deck.format ?? 'standard'}
+              deck={deck}
               onDeckBuilt={(name, cards, commander) => { handleAiDeck(name, cards, commander); setView('search') }}
             />
           )}

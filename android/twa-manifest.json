@@ -1,0 +1,41 @@
+{
+  "packageId": "com.alternaagency.debui",
+  "host": "testproject-cab20.web.app",
+  "name": "DeBui — MTG Deck Builder",
+  "launcherName": "DeBui",
+  "display": "standalone",
+  "themeColor": "#1A1A19",
+  "navigationColor": "#0D0D0D",
+  "navigationColorDark": "#0D0D0D",
+  "navigationDividerColor": "#0D0D0D",
+  "navigationDividerColorDark": "#0D0D0D",
+  "backgroundColor": "#0D0D0D",
+  "enableNotifications": false,
+  "startUrl": "/",
+  "iconUrl": "https://testproject-cab20.web.app/icon-512.png",
+  "maskableIconUrl": "https://testproject-cab20.web.app/icon-maskable-512.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./debui.keystore",
+    "alias": "debui"
+  },
+  "appVersionName": "1.0.0",
+  "appVersionCode": 1,
+  "shortcuts": [],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://testproject-cab20.web.app/manifest.webmanifest",
+  "fallbackType": "customtabs",
+  "features": {},
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://testproject-cab20.web.app/",
+  "minSdkVersion": 21,
+  "orientation": "default",
+  "fingerprints": [],
+  "additionalTrustedOrigins": [],
+  "retainedBundles": []
+}

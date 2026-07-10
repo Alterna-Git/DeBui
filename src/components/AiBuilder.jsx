@@ -1,9 +1,14 @@
 import { useState } from 'react'
 import { buildDeckWithAI } from '../api/ai'
 
-export default function AiBuilder({ user, format, onDeckBuilt }) {
+export default function AiBuilder({ user, deck, onDeckBuilt }) {
+  const format = deck.format ?? 'standard'
+  const lockedCount = deck.cards
+    .filter((c) => c.board !== 'side')
+    .reduce((n, c) => n + c.count, 0)
   const [prompt, setPrompt] = useState('')
   const [status, setStatus] = useState(null)
+  const [notes, setNotes] = useState([])
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
 
@@ -12,15 +17,17 @@ export default function AiBuilder({ user, format, onDeckBuilt }) {
     if (!prompt.trim() || busy) return
     setBusy(true)
     setError(null)
+    setNotes([])
     setStatus('Asking the AI for a deck list…')
     try {
-      const { deckName, commander, cards, unresolved } = await buildDeckWithAI(prompt, format, setStatus)
+      const { deckName, commander, cards, unresolved, notes: buildNotes } = await buildDeckWithAI(prompt, format, deck, setStatus)
       onDeckBuilt(deckName, cards, commander)
-      setStatus(
-        unresolved.length
-          ? `Done — ${cards.length} cards added. Couldn't find: ${unresolved.join(', ')}`
-          : `Done — ${cards.length} cards added to your deck.`,
-      )
+      const totalCards = cards.reduce((n, c) => n + c.count, 0) + (commander ? 1 : 0)
+      setStatus(`Done — ${totalCards} cards added to your deck.`)
+      setNotes([
+        ...buildNotes,
+        ...(unresolved.length ? [`Couldn't find: ${unresolved.join(', ')}`] : []),
+      ])
     } catch (err) {
       setError(err.message)
       setStatus(null)
@@ -40,6 +47,13 @@ export default function AiBuilder({ user, format, onDeckBuilt }) {
         <strong>{format === 'commander' ? '100-card Commander deck (with a commander)' : '60-card deck'}</strong>{' '}
         for you to edit. Switch the format in the deck panel.
       </p>
+      {lockedCount > 0 && (
+        <p className="muted">
+          <strong>{lockedCount} card{lockedCount === 1 ? '' : 's'} already in your deck will be kept</strong> —
+          the AI builds around them and completes the deck
+          {format === 'commander' ? ' to exactly 100' : ''}.
+        </p>
+      )}
       <form onSubmit={build}>
         <textarea
           className="input ai-prompt"
@@ -53,6 +67,11 @@ export default function AiBuilder({ user, format, onDeckBuilt }) {
         </button>
       </form>
       {status && <p className="muted">{status}</p>}
+      {notes.length > 0 && (
+        <ul className="build-notes">
+          {notes.map((n, i) => <li key={i}>{n}</li>)}
+        </ul>
+      )}
       {error && <p className="error">{error}</p>}
     </section>
   )

@@ -49,6 +49,9 @@ body {
 .tab:hover { background: var(--hairline); }
 .tab.active { background: var(--hairline); color: var(--ink); font-weight: 600; }
 
+.android-link { text-decoration: none; font-size: 13px; color: var(--ink-secondary); }
+.android-link:hover { color: var(--ink); }
+
 .auth-user { display: flex; align-items: center; gap: 8px; }
 .auth-avatar { width: 28px; height: 28px; border-radius: 50%; }
 .auth-name { color: var(--ink-secondary); font-size: 13px; }
@@ -182,7 +185,17 @@ body {
   cursor: pointer;
 }
 .count-btn:hover { border-color: var(--muted); color: var(--ink); }
-.deck-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deck-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: default; }
+.deck-name:hover { color: var(--series-1); }
+
+.card-hover-preview {
+  position: fixed;
+  width: 244px;
+  border-radius: 12px;
+  z-index: 100;
+  pointer-events: none;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.65);
+}
 .deck-mana { color: var(--muted); font-size: 12px; }
 .icon-btn {
   background: none;
@@ -268,6 +281,18 @@ body {
 
 .commander-slot h4 { color: var(--warning); }
 .icon-btn.crown.active { color: var(--warning); }
+
+.build-notes {
+  margin: 8px 0 0;
+  padding: 8px 10px 8px 26px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--ink-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
 
 .muted { color: var(--muted); }
 .error { color: #e66767; }

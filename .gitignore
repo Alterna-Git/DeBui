@@ -8,3 +8,15 @@ dist
 firebase-debug.log
 functions/node_modules
 functions/.env
+android/debui.keystore
+android/keystore-password.txt
+android/app/
+android/build/
+android/.gradle/
+android/gradle*
+android/*.apk
+android/*.aab
+android/*.idsig
+android/store_icon.png
+android/manifest-checksum.txt
+public/debui.apk

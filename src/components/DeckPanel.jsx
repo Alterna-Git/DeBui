@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import ManaCurve from './ManaCurve'
 import FormatChecks from './FormatChecks'
 
@@ -17,7 +18,21 @@ function canBeCommander(card) {
   )
 }
 
+const PREVIEW_W = 244
+const PREVIEW_H = 340
+
 function CardRow({ card, isCommanderFormat, isTheCommander, onSetCommander, onChangeCount, onToggleBoard, onRemove }) {
+  const [preview, setPreview] = useState(null)
+
+  function showPreview(e) {
+    if (!card.imageUrl) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    setPreview({
+      left: Math.max(8, rect.left - PREVIEW_W - 16),
+      top: Math.max(8, Math.min(rect.top + rect.height / 2 - PREVIEW_H / 2, window.innerHeight - PREVIEW_H - 8)),
+    })
+  }
+
   return (
     <li className="deck-row">
       <span className="deck-count">
@@ -25,7 +40,21 @@ function CardRow({ card, isCommanderFormat, isTheCommander, onSetCommander, onCh
         {card.count}
         <button className="count-btn" onClick={() => onChangeCount(card, +1)}>+</button>
       </span>
-      <span className="deck-name" title={`${card.type} — ${card.text}`}>{card.name}</span>
+      <span
+        className="deck-name"
+        onMouseEnter={showPreview}
+        onMouseLeave={() => setPreview(null)}
+      >
+        {card.name}
+      </span>
+      {preview && (
+        <img
+          className="card-hover-preview"
+          src={card.imageUrl}
+          alt={card.name}
+          style={{ left: preview.left, top: preview.top }}
+        />
+      )}
       <span className="deck-mana">{card.manaCost}</span>
       {isCommanderFormat && canBeCommander(card) && (
         <button

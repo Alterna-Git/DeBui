@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.alternaagency.debui",
+      "sha256_cert_fingerprints": [
+        "D6:92:2D:45:2B:96:4C:BE:93:57:C2:31:BE:03:42:80:FF:0A:40:44:FE:81:87:26:B5:B2:C4:3E:EF:EF:CB:74"
+      ]
+    }
+  }
+]
