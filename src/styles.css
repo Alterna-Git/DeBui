@@ -205,6 +205,8 @@ body {
   padding: 2px 4px;
 }
 .icon-btn:hover { color: var(--ink); }
+.edhrec-link { text-decoration: none; }
+.edhrec-link:hover { color: var(--series-1); }
 
 .deck-actions { display: flex; gap: 8px; margin-top: 16px; }
 

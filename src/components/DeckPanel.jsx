@@ -21,6 +21,19 @@ function canBeCommander(card) {
 const PREVIEW_W = 244
 const PREVIEW_H = 340
 
+// "Atraxa, Praetors' Voice" → https://edhrec.com/commanders/atraxa-praetors-voice
+function edhrecUrl(card, isCommanderPage) {
+  const slug = card.name
+    .split(' // ')[0]
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+  return `https://edhrec.com/${isCommanderPage ? 'commanders' : 'cards'}/${slug}`
+}
+
 function CardRow({ card, isCommanderFormat, isTheCommander, onSetCommander, onChangeCount, onToggleBoard, onRemove }) {
   const [preview, setPreview] = useState(null)
 
@@ -56,6 +69,15 @@ function CardRow({ card, isCommanderFormat, isTheCommander, onSetCommander, onCh
         />
       )}
       <span className="deck-mana">{card.manaCost}</span>
+      <a
+        className="icon-btn edhrec-link"
+        href={edhrecUrl(card, isTheCommander)}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={isTheCommander ? 'Commander page on EDHREC' : 'View on EDHREC'}
+      >
+        ↗
+      </a>
       {isCommanderFormat && canBeCommander(card) && (
         <button
           className={`icon-btn crown ${isTheCommander ? 'active' : ''}`}
