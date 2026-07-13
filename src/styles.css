@@ -406,6 +406,17 @@ body {
 .swap-add { color: #0ca30c; }
 .swap-reason { grid-column: 1; margin: 0; font-size: 13px; color: var(--muted); }
 .swap-apply { grid-row: 1 / span 2; grid-column: 2; }
+.coach-howto {
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.coach-howto p { margin: 0; font-size: 14px; color: var(--ink-secondary); }
+.howto-keycards li, .howto-stages li { color: var(--ink-secondary); }
+.howto-keycards strong, .howto-stages strong { color: var(--ink); }
 
 .build-notes {
   margin: 8px 0 0;

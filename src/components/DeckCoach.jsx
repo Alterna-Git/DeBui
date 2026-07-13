@@ -119,6 +119,26 @@ export default function DeckCoach({ user, deck, onApplySwap }) {
             </div>
           )}
 
+          {analysis.howToPlay && (
+            <div className="coach-howto">
+              <h4>How to play this deck</h4>
+              {analysis.howToPlay.gameplan && <p>{analysis.howToPlay.gameplan}</p>}
+              {analysis.howToPlay.keyCards.length > 0 && (
+                <ul className="howto-keycards">
+                  {analysis.howToPlay.keyCards.map((k, i) => (
+                    <li key={i}><strong>{k.name}</strong>{k.role ? ` — ${k.role}` : ''}</li>
+                  ))}
+                </ul>
+              )}
+              <ul className="howto-stages">
+                {analysis.howToPlay.mulligan && <li><strong>Opening hand:</strong> {analysis.howToPlay.mulligan}</li>}
+                {analysis.howToPlay.early && <li><strong>Early game (turns 1–3):</strong> {analysis.howToPlay.early}</li>}
+                {analysis.howToPlay.mid && <li><strong>Mid game (turns 4–6):</strong> {analysis.howToPlay.mid}</li>}
+                {analysis.howToPlay.late && <li><strong>Late game (turn 7+):</strong> {analysis.howToPlay.late}</li>}
+              </ul>
+            </div>
+          )}
+
           {analysis.plan.length > 0 && (
             <div className="coach-plan">
               <h4>How to keep improving</h4>

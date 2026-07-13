@@ -59,10 +59,19 @@ Respond with JSON only, matching this shape:
   "counts": {"lands": 0, "ramp": 0, "cardDraw": 0, "removal": 0, "boardWipes": 0},
   "targets": {"lands": 0, "ramp": 0, "cardDraw": 0, "removal": 0, "boardWipes": 0},
   "suggestions": [{"cut": "Card In Deck", "add": "Better Card", "reason": "one sentence"}],
-  "plan": ["3-5 ordered steps for how to test and keep improving this deck"]
+  "plan": ["3-5 ordered steps for how to test and keep improving this deck"],
+  "howToPlay": {
+    "gameplan": "2-3 sentences: how this deck wins, written so a new pilot gets it",
+    "keyCards": [{"name": "Card In Deck", "role": "why this card matters and when to play it"}],
+    "mulligan": "what an opening hand must have to keep",
+    "early": "turns 1-3: what to prioritize",
+    "mid": "turns 4-6: how to develop",
+    "late": "turn 7+: how to close the game"
+  }
 }
 "counts" is what the deck currently has; "targets" is what this archetype wants.
-Give up to 8 suggestions, most impactful first.`
+Give up to 8 suggestions, most impactful first, and up to 5 keyCards that are
+actually in the deck.`
 
 export const analyzeDeck = onCall(
   { secrets: [openaiApiKey], timeoutSeconds: 300 },
@@ -140,6 +149,22 @@ export const analyzeDeck = onCall(
         }))
         .slice(0, 8),
       plan: strings(parsed.plan, 5),
+      howToPlay: (() => {
+        const h = parsed.howToPlay
+        if (!h || typeof h !== 'object') return null
+        const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '')
+        return {
+          gameplan: str(h.gameplan, 600),
+          keyCards: (Array.isArray(h.keyCards) ? h.keyCards : [])
+            .filter((k) => typeof k?.name === 'string')
+            .map((k) => ({ name: k.name.trim().slice(0, 200), role: str(k.role, 300) }))
+            .slice(0, 5),
+          mulligan: str(h.mulligan, 400),
+          early: str(h.early, 400),
+          mid: str(h.mid, 400),
+          late: str(h.late, 400),
+        }
+      })(),
     }
   },
 )
