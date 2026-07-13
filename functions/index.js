@@ -1,36 +1,93 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { defineSecret } from 'firebase-functions/params'
+import Anthropic from '@anthropic-ai/sdk'
 
-const openaiApiKey = defineSecret('OPENAI_API_KEY')
+const anthropicApiKey = defineSecret('ANTHROPIC_API_KEY')
 
-// Calls OpenAI chat completions and returns the message content, converting
-// every failure mode into an HttpsError with a message the app can show.
-async function callOpenAI(body) {
-  let res
-  try {
-    res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${openaiApiKey.value()}`,
-        'Content-Type': 'application/json',
+const MODEL = 'claude-opus-4-8'
+
+// Structured-output schemas: the API guarantees the response validates against
+// these, so "unreadable JSON" failures can't happen.
+const DECK_SCHEMA = {
+  type: 'object',
+  properties: {
+    deckName: { type: 'string' },
+    commander: { type: 'string' },
+    cards: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          count: { type: 'integer' },
+        },
+        required: ['name', 'count'],
+        additionalProperties: false,
       },
-      body: JSON.stringify(body),
-    })
-  } catch (err) {
-    console.error('OpenAI request failed', err)
-    throw new HttpsError('unavailable', 'Could not reach the AI service — please try again.')
-  }
-  if (!res.ok) {
-    console.error('OpenAI error', res.status, await res.text())
-    throw new HttpsError('internal', 'The AI service is unavailable right now — try again shortly.')
-  }
-  const completion = await res.json()
-  const content = completion.choices?.[0]?.message?.content
-  if (!content) {
-    console.error('Empty AI response', JSON.stringify(completion).slice(0, 2000))
-    throw new HttpsError('internal', 'The AI returned an empty response — please try again.')
-  }
-  return content
+    },
+  },
+  required: ['deckName', 'commander', 'cards'],
+  additionalProperties: false,
+}
+
+const RATIO_KEYS = ['lands', 'ramp', 'cardDraw', 'removal', 'boardWipes']
+const ratioObject = {
+  type: 'object',
+  properties: Object.fromEntries(RATIO_KEYS.map((k) => [k, { type: 'integer' }])),
+  required: RATIO_KEYS,
+  additionalProperties: false,
+}
+
+const COACH_SCHEMA = {
+  type: 'object',
+  properties: {
+    rating: { type: 'integer' },
+    archetype: { type: 'string' },
+    strengths: { type: 'array', items: { type: 'string' } },
+    weaknesses: { type: 'array', items: { type: 'string' } },
+    counts: ratioObject,
+    targets: ratioObject,
+    suggestions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          cut: { type: 'string' },
+          add: { type: 'string' },
+          reason: { type: 'string' },
+        },
+        required: ['cut', 'add', 'reason'],
+        additionalProperties: false,
+      },
+    },
+    plan: { type: 'array', items: { type: 'string' } },
+    howToPlay: {
+      type: 'object',
+      properties: {
+        gameplan: { type: 'string' },
+        keyCards: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              role: { type: 'string' },
+            },
+            required: ['name', 'role'],
+            additionalProperties: false,
+          },
+        },
+        mulligan: { type: 'string' },
+        early: { type: 'string' },
+        mid: { type: 'string' },
+        late: { type: 'string' },
+      },
+      required: ['gameplan', 'keyCards', 'mulligan', 'early', 'mid', 'late'],
+      additionalProperties: false,
+    },
+  },
+  required: ['rating', 'archetype', 'strengths', 'weaknesses', 'counts', 'targets', 'suggestions', 'plan', 'howToPlay'],
+  additionalProperties: false,
 }
 
 const SYSTEM_PROMPT_COMMANDER = `You are an expert Magic: The Gathering deck builder specializing in Commander (EDH).
@@ -57,44 +114,141 @@ exactly 100 cards total including the commander.
 
 Use only real Magic: The Gathering card names, spelled exactly as printed.
 If the user message lists cards already locked into the deck, treat them as fixed: build
-the synergy and mana base around them and return ONLY the additional cards that bring the
-total to exactly 100 — never repeat a locked card except basic lands.
-Respond with JSON only, matching this shape:
-{"deckName": "string", "commander": "Card Name", "cards": [{"name": "Card Name", "count": 1}]}
-where "cards" lists the cards other than the commander (basic lands may use count > 1;
-never repeat the commander).`
+the synergy and mana base around them and return in "cards" ONLY the additional cards that
+bring the total to exactly 100 — never repeat a locked card except basic lands.
+Otherwise "cards" lists the 99 cards other than the commander (basic lands may use
+count > 1; never repeat the commander in "cards").`
 
 const SYSTEM_PROMPT_COACH = `You are a professional Magic: The Gathering deck coach.
-Analyze the deck the user provides and give honest, specific, actionable advice for the
-stated format. For Commander decks, respect color identity and singleton in every
-suggestion. "cut" must name a card actually in the deck; "add" must be a real card,
-spelled exactly as printed, legal in the format, and (for Commander) within the
-commander's color identity.
-Respond with JSON only, matching this shape:
-{
-  "rating": 7,
-  "archetype": "short description of what the deck is trying to do",
-  "strengths": ["up to 4 short points"],
-  "weaknesses": ["up to 4 short points"],
-  "counts": {"lands": 0, "ramp": 0, "cardDraw": 0, "removal": 0, "boardWipes": 0},
-  "targets": {"lands": 0, "ramp": 0, "cardDraw": 0, "removal": 0, "boardWipes": 0},
-  "suggestions": [{"cut": "Card In Deck", "add": "Better Card", "reason": "one sentence"}],
-  "plan": ["3-5 ordered steps for how to test and keep improving this deck"],
-  "howToPlay": {
-    "gameplan": "2-3 sentences: how this deck wins, written so a new pilot gets it",
-    "keyCards": [{"name": "Card In Deck", "role": "why this card matters and when to play it"}],
-    "mulligan": "what an opening hand must have to keep",
-    "early": "turns 1-3: what to prioritize",
-    "mid": "turns 4-6: how to develop",
-    "late": "turn 7+: how to close the game"
+Analyze the Commander (EDH) deck the user provides and give honest, specific, actionable
+advice. Respect color identity and singleton in every suggestion. "cut" must name a card
+actually in the deck; "add" must be a real card, spelled exactly as printed, legal in
+Commander, and within the commander's color identity.
+
+Field guidance:
+- rating: 1-10 honest power assessment
+- counts: what the deck currently has; targets: what this archetype wants
+- suggestions: up to 8, most impactful first
+- plan: 3-5 ordered steps for how to test and keep improving this deck
+- howToPlay: written so a brand-new pilot can play the deck — gameplan (2-3 sentences on
+  how it wins), up to 5 keyCards actually in the deck with when/why to play them,
+  mulligan (what an opening hand must have), and early (turns 1-3) / mid (turns 4-6) /
+  late (turn 7+) priorities.`
+
+// Calls Claude with schema-enforced JSON output and converts every failure
+// mode into an HttpsError with a message the app can show.
+async function callClaude({ system, user, schema }) {
+  const client = new Anthropic({ apiKey: anthropicApiKey.value() })
+  let response
+  try {
+    response = await client.messages.create({
+      model: MODEL,
+      max_tokens: 16000,
+      thinking: { type: 'adaptive' },
+      output_config: {
+        effort: 'high',
+        format: { type: 'json_schema', schema },
+      },
+      system,
+      messages: [{ role: 'user', content: user }],
+    })
+  } catch (err) {
+    if (err instanceof Anthropic.RateLimitError) {
+      throw new HttpsError('resource-exhausted', 'The AI service is busy right now — try again in a minute.')
+    }
+    if (err instanceof Anthropic.APIConnectionError) {
+      throw new HttpsError('unavailable', 'Could not reach the AI service — please try again.')
+    }
+    if (err instanceof Anthropic.APIError) {
+      console.error('Anthropic API error', err.status, err.message)
+      throw new HttpsError('internal', 'The AI service is unavailable right now — try again shortly.')
+    }
+    console.error('Unexpected error calling Claude', err)
+    throw new HttpsError('internal', 'Something went wrong talking to the AI — please try again.')
+  }
+
+  if (response.stop_reason === 'refusal') {
+    throw new HttpsError('internal', 'The AI declined this request — try rephrasing it.')
+  }
+  if (response.stop_reason === 'max_tokens') {
+    throw new HttpsError('internal', 'The AI response was cut short — please try again.')
+  }
+  const text = response.content.find((b) => b.type === 'text')?.text
+  if (!text) {
+    console.error('No text block in response', JSON.stringify(response.content).slice(0, 2000))
+    throw new HttpsError('internal', 'The AI returned an empty response — please try again.')
+  }
+  try {
+    return JSON.parse(text)
+  } catch {
+    console.error('Unparseable AI response', text.slice(0, 2000))
+    throw new HttpsError('internal', 'The AI returned an unreadable response — please try again.')
   }
 }
-"counts" is what the deck currently has; "targets" is what this archetype wants.
-Give up to 8 suggestions, most impactful first, and up to 5 keyCards that are
-actually in the deck.`
+
+export const buildDeckWithAI = onCall(
+  { secrets: [anthropicApiKey], timeoutSeconds: 300 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Sign in to use the AI deck builder.')
+    }
+    const prompt = request.data?.prompt
+    if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 2000) {
+      throw new HttpsError('invalid-argument', 'Provide a deck description (max 2000 characters).')
+    }
+
+    const existing = (Array.isArray(request.data?.existing) ? request.data.existing.slice(0, 150) : [])
+      .filter((c) => typeof c?.name === 'string' && c.name.trim())
+      .map((c) => ({
+        name: c.name.trim().slice(0, 200),
+        count: Number.isFinite(c.count) ? Math.min(Math.max(Math.round(c.count), 1), 99) : 1,
+      }))
+    const commanderName =
+      typeof request.data?.commanderName === 'string' && request.data.commanderName.trim()
+        ? request.data.commanderName.trim().slice(0, 200)
+        : null
+
+    const parts = [prompt]
+    if (commanderName) {
+      parts.push(`The commander is already chosen and fixed: ${commanderName}. Build strictly within its color identity and report it back unchanged in the "commander" field.`)
+    }
+    if (existing.length) {
+      const lockedTotal = existing.reduce((n, c) => n + c.count, 0) + (commanderName ? 1 : 0)
+      parts.push(
+        `Cards already locked into the deck (${lockedTotal} cards${commanderName ? ' including the commander' : ''}). Keep all of them and do NOT repeat any of them in your response:\n` +
+          existing.map((c) => `${c.count} ${c.name}`).join('\n'),
+      )
+      parts.push('Return ONLY the additional cards needed to complete the deck, chosen to synergize with the locked cards above.')
+    }
+
+    const parsed = await callClaude({
+      system: SYSTEM_PROMPT_COMMANDER,
+      user: parts.join('\n\n'),
+      schema: DECK_SCHEMA,
+    })
+
+    const cards = parsed.cards
+      .filter((c) => c.name.trim())
+      .map((c) => ({
+        name: c.name.trim(),
+        count: Math.min(Math.max(c.count, 1), 30),
+      }))
+      .slice(0, 120)
+
+    if (!cards.length) {
+      throw new HttpsError('internal', 'The AI did not return any cards — try rephrasing your request.')
+    }
+
+    return {
+      deckName: parsed.deckName.slice(0, 100) || 'AI Deck',
+      commander: parsed.commander.trim().slice(0, 200) || null,
+      cards,
+    }
+  },
+)
 
 export const analyzeDeck = onCall(
-  { secrets: [openaiApiKey], timeoutSeconds: 300 },
+  { secrets: [anthropicApiKey], timeoutSeconds: 300 },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', 'Sign in to use the deck coach.')
@@ -119,136 +273,38 @@ export const analyzeDeck = onCall(
       `Deck list:\n${cards.map((c) => `${c.count} ${c.name}`).join('\n')}`,
     ].filter(Boolean).join('\n\n')
 
-    const content = await callOpenAI({
-      model: 'gpt-5.5',
-      reasoning_effort: 'medium',
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT_COACH },
-        { role: 'user', content: userContent },
-      ],
+    const parsed = await callClaude({
+      system: SYSTEM_PROMPT_COACH,
+      user: userContent,
+      schema: COACH_SCHEMA,
     })
-    let parsed
-    try {
-      parsed = JSON.parse(content)
-    } catch {
-      console.error('Unparseable AI response', content.slice(0, 2000))
-      throw new HttpsError('internal', 'The AI returned an unreadable analysis — try again.')
-    }
 
-    const strings = (v, max) => (Array.isArray(v) ? v.filter((s) => typeof s === 'string').slice(0, max) : [])
-    const nums = (v) => (v && typeof v === 'object'
-      ? Object.fromEntries(Object.entries(v).filter(([, n]) => Number.isFinite(n)))
-      : {})
+    const strings = (v, max) => v.filter((s) => typeof s === 'string').slice(0, max)
     return {
-      rating: Number.isFinite(parsed.rating) ? Math.min(Math.max(parsed.rating, 1), 10) : null,
-      archetype: typeof parsed.archetype === 'string' ? parsed.archetype.slice(0, 300) : '',
+      rating: Math.min(Math.max(parsed.rating, 1), 10),
+      archetype: parsed.archetype.slice(0, 300),
       strengths: strings(parsed.strengths, 4),
       weaknesses: strings(parsed.weaknesses, 4),
-      counts: nums(parsed.counts),
-      targets: nums(parsed.targets),
-      suggestions: (Array.isArray(parsed.suggestions) ? parsed.suggestions : [])
-        .filter((s) => typeof s?.cut === 'string' && typeof s?.add === 'string')
+      counts: parsed.counts,
+      targets: parsed.targets,
+      suggestions: parsed.suggestions
         .map((s) => ({
           cut: s.cut.trim().slice(0, 200),
           add: s.add.trim().slice(0, 200),
-          reason: typeof s.reason === 'string' ? s.reason.slice(0, 400) : '',
+          reason: s.reason.slice(0, 400),
         }))
         .slice(0, 8),
       plan: strings(parsed.plan, 5),
-      howToPlay: (() => {
-        const h = parsed.howToPlay
-        if (!h || typeof h !== 'object') return null
-        const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '')
-        return {
-          gameplan: str(h.gameplan, 600),
-          keyCards: (Array.isArray(h.keyCards) ? h.keyCards : [])
-            .filter((k) => typeof k?.name === 'string')
-            .map((k) => ({ name: k.name.trim().slice(0, 200), role: str(k.role, 300) }))
-            .slice(0, 5),
-          mulligan: str(h.mulligan, 400),
-          early: str(h.early, 400),
-          mid: str(h.mid, 400),
-          late: str(h.late, 400),
-        }
-      })(),
-    }
-  },
-)
-
-export const buildDeckWithAI = onCall(
-  { secrets: [openaiApiKey], timeoutSeconds: 300 },
-  async (request) => {
-    if (!request.auth) {
-      throw new HttpsError('unauthenticated', 'Sign in to use the AI deck builder.')
-    }
-    const prompt = request.data?.prompt
-    if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 2000) {
-      throw new HttpsError('invalid-argument', 'Provide a deck description (max 2000 characters).')
-    }
-    const existing = (Array.isArray(request.data?.existing) ? request.data.existing.slice(0, 150) : [])
-      .filter((c) => typeof c?.name === 'string' && c.name.trim())
-      .map((c) => ({
-        name: c.name.trim().slice(0, 200),
-        count: Number.isFinite(c.count) ? Math.min(Math.max(Math.round(c.count), 1), 99) : 1,
-      }))
-    const commanderName =
-      typeof request.data?.commanderName === 'string' && request.data.commanderName.trim()
-        ? request.data.commanderName.trim().slice(0, 200)
-        : null
-
-    const parts = [prompt]
-    if (commanderName) {
-      parts.push(`The commander is already chosen and fixed: ${commanderName}. Build strictly within its color identity and report it back unchanged in the "commander" field.`)
-    }
-    if (existing.length) {
-      const lockedTotal = existing.reduce((n, c) => n + c.count, 0) + (commanderName ? 1 : 0)
-      parts.push(
-        `Cards already locked into the deck (${lockedTotal} cards${commanderName ? ' including the commander' : ''}). Keep all of them and do NOT repeat any of them in your response:\n` +
-          existing.map((c) => `${c.count} ${c.name}`).join('\n'),
-      )
-      parts.push('Return ONLY the additional cards needed to complete the deck, chosen to synergize with the locked cards above.')
-    }
-    const userContent = parts.join('\n\n')
-
-    const content = await callOpenAI({
-      model: 'gpt-5.5',
-      // Without this, GPT-5.5 defaults to its deepest reasoning and can exceed
-      // the 300s function timeout. Medium finishes a full deck in ~80s.
-      reasoning_effort: 'medium',
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT_COMMANDER },
-        { role: 'user', content: userContent },
-      ],
-    })
-    let parsed
-    try {
-      parsed = JSON.parse(content)
-    } catch {
-      console.error('Unparseable AI response', content.slice(0, 2000))
-      throw new HttpsError('internal', 'The AI returned an unreadable deck list — try again.')
-    }
-
-    const cards = Array.isArray(parsed.cards)
-      ? parsed.cards
-          .filter((c) => typeof c?.name === 'string' && c.name.trim())
-          .map((c) => ({
-            name: c.name.trim(),
-            count: Number.isFinite(c.count) ? Math.min(Math.max(Math.round(c.count), 1), 30) : 1,
-          }))
-          .slice(0, 120)
-      : []
-
-    if (!cards.length) {
-      throw new HttpsError('internal', 'The AI did not return any cards — try rephrasing your request.')
-    }
-
-    return {
-      deckName: typeof parsed.deckName === 'string' ? parsed.deckName.slice(0, 100) : 'AI Deck',
-      commander:
-        typeof parsed.commander === 'string' ? parsed.commander.trim().slice(0, 200) : null,
-      cards,
+      howToPlay: {
+        gameplan: parsed.howToPlay.gameplan.slice(0, 600),
+        keyCards: parsed.howToPlay.keyCards
+          .map((k) => ({ name: k.name.trim().slice(0, 200), role: k.role.slice(0, 300) }))
+          .slice(0, 5),
+        mulligan: parsed.howToPlay.mulligan.slice(0, 400),
+        early: parsed.howToPlay.early.slice(0, 400),
+        mid: parsed.howToPlay.mid.slice(0, 400),
+        late: parsed.howToPlay.late.slice(0, 400),
+      },
     }
   },
 )
