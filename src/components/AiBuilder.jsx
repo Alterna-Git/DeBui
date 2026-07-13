@@ -61,6 +61,9 @@ export default function AiBuilder({ user, deck, onDeckBuilt }) {
           placeholder="e.g. A mono-green stompy deck for casual Standard play, built around big creatures and ramp…"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) build(e)
+          }}
         />
         <button className="btn btn-primary" disabled={busy || !prompt.trim()}>
           {busy ? 'Building…' : 'Build deck with AI'}
