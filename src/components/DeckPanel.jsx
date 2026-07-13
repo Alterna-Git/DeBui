@@ -1,6 +1,29 @@
 import { useState } from 'react'
 import ManaCurve from './ManaCurve'
 import FormatChecks from './FormatChecks'
+import { evaluateBracket } from '../api/bracket'
+
+function BracketInfo({ deck }) {
+  const b = evaluateBracket(deck)
+  const list = (cards) => cards.map((c) => c.name).join(', ')
+  return (
+    <details className="rules-ref bracket-info">
+      <summary>
+        Bracket <span className="bracket-chip">{b.bracket}</span> {b.name}
+      </summary>
+      <ul>
+        <li>Game Changers ({b.gameChangers.length}): {b.gameChangers.length ? list(b.gameChangers) : 'none'}</li>
+        <li>Mass land denial ({b.mld.length}): {b.mld.length ? list(b.mld) : 'none'}</li>
+        <li>Extra-turn cards ({b.extraTurns.length}): {b.extraTurns.length ? list(b.extraTurns) : 'none'}</li>
+        <li>Tutors ({b.tutors.length}): {b.tutors.length ? list(b.tutors) : 'none'}</li>
+        {b.unknown > 0 && (
+          <li className="muted">{b.unknown} card{b.unknown === 1 ? '' : 's'} saved before bracket data existed — re-add or re-import them for a full read.</li>
+        )}
+        <li className="muted">Brackets 1/2 and 4/5 differ by intent (precon vs tuned, optimized vs cEDH) — a list alone can't split them.</li>
+      </ul>
+    </details>
+  )
+}
 
 const TYPE_ORDER = ['Creature', 'Planeswalker', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Battle', 'Land', 'Other']
 
@@ -141,6 +164,8 @@ export default function DeckPanel({
       </select>
 
       <FormatChecks format={format} main={main} commander={commander} />
+
+      {isCommanderFormat && deck.cards.length > 0 && <BracketInfo deck={deck} />}
 
       {isCommanderFormat && (
         <details className="rules-ref">

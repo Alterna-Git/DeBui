@@ -3,7 +3,7 @@
 // set releases. Results are cached in localStorage for 24h.
 
 const API_BASE = 'https://api.scryfall.com'
-const CACHE_PREFIX = 'scry-cache-v2:'
+const CACHE_PREFIX = 'scry-cache-v3:'
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000
 
 function cacheGet(key) {
@@ -92,6 +92,7 @@ function normalizeCard(card) {
     colors: card.colors ?? face?.colors ?? [],
     colorIdentity: card.color_identity ?? [],
     commanderLegal: card.legalities ? card.legalities.commander === 'legal' : undefined,
+    gameChanger: card.game_changer === true,
     rarity: card.rarity ? card.rarity[0].toUpperCase() + card.rarity.slice(1) : '',
     setName: card.set_name ?? '',
     text: card.oracle_text ?? face?.oracle_text ?? '',
