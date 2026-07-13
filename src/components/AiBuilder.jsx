@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { buildDeckWithAI } from '../api/ai'
+import { buildDeckWithAI, withWakeLock } from '../api/ai'
 
 export default function AiBuilder({ user, deck, onDeckBuilt }) {
   const lockedCount = deck.cards
@@ -19,7 +19,7 @@ export default function AiBuilder({ user, deck, onDeckBuilt }) {
     setNotes([])
     setStatus('Asking the AI for a deck list…')
     try {
-      const { deckName, commander, cards, unresolved, notes: buildNotes } = await buildDeckWithAI(prompt, deck, setStatus)
+      const { deckName, commander, cards, unresolved, notes: buildNotes } = await withWakeLock(() => buildDeckWithAI(prompt, deck, setStatus))
       onDeckBuilt(deckName, cards, commander)
       const totalCards = cards.reduce((n, c) => n + c.count, 0) + (commander ? 1 : 0)
       setStatus(`Done — ${totalCards} cards added to your deck.`)

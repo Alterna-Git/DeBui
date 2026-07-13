@@ -1,8 +1,43 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { defineSecret } from 'firebase-functions/params'
+import { initializeApp } from 'firebase-admin/app'
+import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import Anthropic from '@anthropic-ai/sdk'
 
+initializeApp()
+const db = getFirestore()
+
 const anthropicApiKey = defineSecret('ANTHROPIC_API_KEY')
+
+// Mobile connections often drop during a 1-2 minute AI call (screen lock, app
+// switch), losing the callable response even though the work succeeded. When
+// the client passes a jobId, the result is also written to a Firestore doc the
+// client watches — so it arrives even after a dropped connection.
+function jobRefFor(request) {
+  if (!request.auth) return null
+  const jobId = request.data?.jobId
+  if (typeof jobId !== 'string' || !/^[A-Za-z0-9_-]{8,64}$/.test(jobId)) return null
+  return db.doc(`users/${request.auth.uid}/jobs/${jobId}`)
+}
+
+async function withJobResult(request, work) {
+  const jobRef = jobRefFor(request)
+  try {
+    const result = await work()
+    if (jobRef) {
+      await jobRef.set({ status: 'done', result, createdAt: FieldValue.serverTimestamp() }).catch((e) => {
+        console.error('Failed to write job result', e)
+      })
+    }
+    return result
+  } catch (err) {
+    if (jobRef) {
+      const message = err instanceof HttpsError ? err.message : 'Something went wrong — please try again.'
+      await jobRef.set({ status: 'error', message, createdAt: FieldValue.serverTimestamp() }).catch(() => {})
+    }
+    throw err
+  }
+}
 
 const MODEL = 'claude-opus-4-8'
 
@@ -188,7 +223,7 @@ async function callClaude({ system, user, schema }) {
 
 export const buildDeckWithAI = onCall(
   { secrets: [anthropicApiKey], timeoutSeconds: 300 },
-  async (request) => {
+  (request) => withJobResult(request, async () => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', 'Sign in to use the AI deck builder.')
     }
@@ -244,12 +279,12 @@ export const buildDeckWithAI = onCall(
       commander: parsed.commander.trim().slice(0, 200) || null,
       cards,
     }
-  },
+  }),
 )
 
 export const analyzeDeck = onCall(
   { secrets: [anthropicApiKey], timeoutSeconds: 300 },
-  async (request) => {
+  (request) => withJobResult(request, async () => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', 'Sign in to use the deck coach.')
     }
@@ -306,5 +341,7 @@ export const analyzeDeck = onCall(
         late: parsed.howToPlay.late.slice(0, 400),
       },
     }
-  },
+  }),
 )
+
+// deploy: mobile job-doc resilience v2

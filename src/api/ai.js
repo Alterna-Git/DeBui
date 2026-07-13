@@ -1,15 +1,86 @@
 import { httpsCallable } from 'firebase/functions'
-import { functions } from '../firebase'
+import { doc, onSnapshot, deleteDoc } from 'firebase/firestore'
+import { functions, db, auth } from '../firebase'
 import { findCardByName, findCardsByNames } from './mtg'
 
+// Codes where the server rejected the request cleanly — no point waiting for
+// the job doc, the function isn't running.
+const FAST_FAIL = new Set([
+  'functions/invalid-argument',
+  'functions/unauthenticated',
+  'functions/resource-exhausted',
+  'functions/unavailable',
+])
+
+// Calls a Cloud Function, but also watches a Firestore "job" doc the function
+// writes its result to. On mobile the connection often drops mid-call (screen
+// lock, app switch) even though the function finishes — the job doc delivers
+// the result anyway.
+function callResilient(name, payload) {
+  const uid = auth.currentUser?.uid
+  if (!uid || typeof crypto?.randomUUID !== 'function') {
+    return httpsCallable(functions, name, { timeout: 300_000 })(payload)
+  }
+  const jobId = crypto.randomUUID()
+  const jobRef = doc(db, 'users', uid, 'jobs', jobId)
+
+  return new Promise((resolve, reject) => {
+    let settled = false
+    let unsubscribe = () => {}
+    const finish = (fn, value) => {
+      if (settled) return
+      settled = true
+      unsubscribe()
+      deleteDoc(jobRef).catch(() => {})
+      fn(value)
+    }
+    unsubscribe = onSnapshot(
+      jobRef,
+      (snap) => {
+        const job = snap.data()
+        if (!job) return
+        if (job.status === 'done') finish(resolve, { data: job.result })
+        else if (job.status === 'error') finish(reject, new Error(job.message))
+      },
+      () => {}, // listener failure: the direct call is still in flight
+    )
+    httpsCallable(functions, name, { timeout: 300_000 })({ ...payload, jobId })
+      .then((res) => finish(resolve, res))
+      .catch((err) => {
+        if (FAST_FAIL.has(err?.code)) {
+          finish(reject, err)
+        } else {
+          // Likely a dropped connection — the function may still finish and
+          // write the job doc. Give it time before giving up.
+          setTimeout(() => finish(reject, err), 240_000)
+        }
+      })
+  })
+}
+
 const BASICS = { W: 'Plains', U: 'Island', B: 'Swamp', R: 'Mountain', G: 'Forest' }
+
+// Keeps the phone screen awake during a long AI call — Android pauses the
+// page (and drops the connection) when the screen locks.
+export async function withWakeLock(work) {
+  let lock = null
+  try {
+    lock = await navigator.wakeLock?.request('screen')
+  } catch {
+    /* unsupported or denied — proceed without it */
+  }
+  try {
+    return await work()
+  } finally {
+    lock?.release().catch(() => {})
+  }
+}
 
 // Sends the current deck to the coach function and returns its structured critique.
 export async function analyzeDeckWithAI(deck) {
   const main = deck.cards.filter((c) => c.board !== 'side')
   const commander = main.find((c) => c.id === deck.commanderId)
-  const call = httpsCallable(functions, 'analyzeDeck', { timeout: 300_000 })
-  const { data } = await call({
+  const { data } = await callResilient('analyzeDeck', {
     commanderName: commander?.name ?? null,
     cards: main
       .filter((c) => c !== commander)
@@ -38,9 +109,7 @@ export async function buildDeckWithAI(prompt, currentDeck, onProgress) {
     mainExisting.find((c) => c.id === currentDeck.commanderId) ?? null
   const lockedCards = mainExisting.filter((c) => c !== existingCommander)
 
-  // 5-minute timeout: reasoning models can take a couple of minutes on a full deck.
-  const call = httpsCallable(functions, 'buildDeckWithAI', { timeout: 300_000 })
-  const { data } = await call({
+  const { data } = await callResilient('buildDeckWithAI', {
     prompt,
     existing: lockedCards.map((c) => ({ name: c.name, count: c.count })),
     commanderName: existingCommander?.name ?? null,

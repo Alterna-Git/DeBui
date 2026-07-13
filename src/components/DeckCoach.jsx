@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { analyzeDeckWithAI } from '../api/ai'
+import { analyzeDeckWithAI, withWakeLock } from '../api/ai'
 
 const COUNT_LABELS = {
   lands: 'Lands',
@@ -23,7 +23,7 @@ export default function DeckCoach({ user, deck, onApplySwap }) {
     setBusy(true)
     setError(null)
     try {
-      setAnalysis(await analyzeDeckWithAI(deck))
+      setAnalysis(await withWakeLock(() => analyzeDeckWithAI(deck)))
       setApplied({})
     } catch (err) {
       setError(err.message)
