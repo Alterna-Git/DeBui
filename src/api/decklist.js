@@ -17,8 +17,7 @@ const SKIP_HEADERS = ['about', 'companion', 'tokens', 'considering', 'maybeboard
 export function exportDecklist(deck) {
   const main = deck.cards.filter((c) => c.board !== 'side')
   const side = deck.cards.filter((c) => c.board === 'side')
-  const commander =
-    deck.format === 'commander' ? main.find((c) => c.id === deck.commanderId) : null
+  const commander = main.find((c) => c.id === deck.commanderId)
 
   const lines = []
   if (commander) lines.push('Commander', `1 ${commander.name}`, '')

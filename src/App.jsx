@@ -11,7 +11,7 @@ import AiBuilder from './components/AiBuilder'
 import DeckCoach from './components/DeckCoach'
 import { ImportModal, ExportModal } from './components/ImportExport'
 
-const EMPTY_DECK = { id: null, name: 'Untitled Deck', format: 'standard', commanderId: null, cards: [] }
+const EMPTY_DECK = { id: null, name: 'Untitled Deck', format: 'commander', commanderId: null, cards: [] }
 
 export default function App() {
   const [user, setUser] = useState(null)
@@ -61,10 +61,6 @@ export default function App() {
     }))
   }
 
-  function setFormat(format) {
-    setDeck((cur) => ({ ...cur, format }))
-  }
-
   function setCommander(card) {
     setDeck((cur) => ({
       ...cur,
@@ -96,11 +92,10 @@ export default function App() {
         )
         const rest = cut ? cur.cards.filter((c) => c !== cut) : [...cur.cards]
         const alreadyIn = rest.some((c) => c.id === card.id && c.board !== 'side')
-        const count = cur.format === 'commander' ? 1 : Math.min(cut?.count ?? 1, 4)
         return {
           ...cur,
           commanderId: cut && cur.commanderId === cut.id ? null : cur.commanderId,
-          cards: alreadyIn ? rest : [...rest, { ...card, count, board: 'main' }],
+          cards: alreadyIn ? rest : [...rest, { ...card, count: 1, board: 'main' }],
         }
       })
       return true
@@ -114,7 +109,7 @@ export default function App() {
       ...cur,
       id: null,
       name: cur.name && cur.name !== 'Untitled Deck' ? cur.name : 'Imported Deck',
-      format: commander ? 'commander' : cur.format,
+      format: 'commander',
       commanderId: commander?.id ?? null,
       cards: [
         ...(commander ? [{ ...commander, count: 1, board: 'main' }] : []),
@@ -127,6 +122,7 @@ export default function App() {
     setDeck((cur) => ({
       ...cur,
       name: !cur.name || cur.name === 'Untitled Deck' ? deckName || 'AI Deck' : cur.name,
+      format: 'commander',
       commanderId: commander?.id ?? null,
       cards: [
         ...(commander ? [{ ...commander, count: 1, board: 'main' }] : []),
@@ -174,7 +170,7 @@ export default function App() {
           {view === 'decks' && (
             <MyDecks
               user={user}
-              onOpenDeck={(d) => { setDeck(d); setView('search') }}
+              onOpenDeck={(d) => { setDeck({ format: 'commander', commanderId: null, ...d }); setView('search') }}
             />
           )}
         </div>
@@ -183,7 +179,6 @@ export default function App() {
           user={user}
           saving={saving}
           onRename={(name) => setDeck((cur) => ({ ...cur, name }))}
-          onSetFormat={setFormat}
           onSetCommander={setCommander}
           onChangeCount={changeCount}
           onToggleBoard={toggleBoard}

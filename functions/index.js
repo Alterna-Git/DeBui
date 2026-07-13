@@ -3,15 +3,35 @@ import { defineSecret } from 'firebase-functions/params'
 
 const openaiApiKey = defineSecret('OPENAI_API_KEY')
 
-const SYSTEM_PROMPT_STANDARD = `You are an expert Magic: The Gathering deck builder.
-Given a user's description, design a complete, legal 60-card deck (including lands).
-Use only real Magic: The Gathering card names, spelled exactly as printed.
-Respect the 4-copy limit for non-basic-land cards.
-If the user message lists cards already locked into the deck, treat them as fixed and
-return ONLY the additional cards needed to complete the deck — never repeat a locked
-card except basic lands.
-Respond with JSON only, matching this shape:
-{"deckName": "string", "cards": [{"name": "Card Name", "count": 4}]}`
+// Calls OpenAI chat completions and returns the message content, converting
+// every failure mode into an HttpsError with a message the app can show.
+async function callOpenAI(body) {
+  let res
+  try {
+    res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${openaiApiKey.value()}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    })
+  } catch (err) {
+    console.error('OpenAI request failed', err)
+    throw new HttpsError('unavailable', 'Could not reach the AI service — please try again.')
+  }
+  if (!res.ok) {
+    console.error('OpenAI error', res.status, await res.text())
+    throw new HttpsError('internal', 'The AI service is unavailable right now — try again shortly.')
+  }
+  const completion = await res.json()
+  const content = completion.choices?.[0]?.message?.content
+  if (!content) {
+    console.error('Empty AI response', JSON.stringify(completion).slice(0, 2000))
+    throw new HttpsError('internal', 'The AI returned an empty response — please try again.')
+  }
+  return content
+}
 
 const SYSTEM_PROMPT_COMMANDER = `You are an expert Magic: The Gathering deck builder specializing in Commander (EDH).
 Design a complete, legal, synergistic 100-card Commander deck from the user's description.
@@ -88,44 +108,31 @@ export const analyzeDeck = onCall(
     if (!cards.length) {
       throw new HttpsError('invalid-argument', 'The deck is empty — add some cards first.')
     }
-    const format = request.data?.format === 'commander' ? 'Commander (EDH)' : '60-card casual/constructed'
     const commanderName =
       typeof request.data?.commanderName === 'string' && request.data.commanderName.trim()
         ? request.data.commanderName.trim().slice(0, 200)
         : null
 
     const userContent = [
-      `Format: ${format}`,
+      'Format: Commander (EDH)',
       commanderName ? `Commander: ${commanderName}` : null,
       `Deck list:\n${cards.map((c) => `${c.count} ${c.name}`).join('\n')}`,
     ].filter(Boolean).join('\n\n')
 
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${openaiApiKey.value()}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-5.5',
-        reasoning_effort: 'medium',
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT_COACH },
-          { role: 'user', content: userContent },
-        ],
-      }),
+    const content = await callOpenAI({
+      model: 'gpt-5.5',
+      reasoning_effort: 'medium',
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT_COACH },
+        { role: 'user', content: userContent },
+      ],
     })
-    if (!res.ok) {
-      const body = await res.text()
-      console.error('OpenAI error', res.status, body)
-      throw new HttpsError('internal', 'The AI service is unavailable right now — try again shortly.')
-    }
-    const completion = await res.json()
     let parsed
     try {
-      parsed = JSON.parse(completion.choices[0].message.content)
+      parsed = JSON.parse(content)
     } catch {
+      console.error('Unparseable AI response', content.slice(0, 2000))
       throw new HttpsError('internal', 'The AI returned an unreadable analysis — try again.')
     }
 
@@ -179,8 +186,6 @@ export const buildDeckWithAI = onCall(
     if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 2000) {
       throw new HttpsError('invalid-argument', 'Provide a deck description (max 2000 characters).')
     }
-    const isCommander = request.data?.format === 'commander'
-
     const existing = (Array.isArray(request.data?.existing) ? request.data.existing.slice(0, 150) : [])
       .filter((c) => typeof c?.name === 'string' && c.name.trim())
       .map((c) => ({
@@ -206,36 +211,22 @@ export const buildDeckWithAI = onCall(
     }
     const userContent = parts.join('\n\n')
 
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${openaiApiKey.value()}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: isCommander ? 'gpt-5.5' : 'gpt-5.4-mini',
-        // Without this, GPT-5.5 defaults to its deepest reasoning and can exceed
-        // the 300s function timeout. Medium finishes a full deck in ~80s.
-        reasoning_effort: isCommander ? 'medium' : 'low',
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: isCommander ? SYSTEM_PROMPT_COMMANDER : SYSTEM_PROMPT_STANDARD },
-          { role: 'user', content: userContent },
-        ],
-      }),
+    const content = await callOpenAI({
+      model: 'gpt-5.5',
+      // Without this, GPT-5.5 defaults to its deepest reasoning and can exceed
+      // the 300s function timeout. Medium finishes a full deck in ~80s.
+      reasoning_effort: 'medium',
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT_COMMANDER },
+        { role: 'user', content: userContent },
+      ],
     })
-
-    if (!res.ok) {
-      const body = await res.text()
-      console.error('OpenAI error', res.status, body)
-      throw new HttpsError('internal', 'The AI service is unavailable right now — try again shortly.')
-    }
-
-    const completion = await res.json()
     let parsed
     try {
-      parsed = JSON.parse(completion.choices[0].message.content)
+      parsed = JSON.parse(content)
     } catch {
+      console.error('Unparseable AI response', content.slice(0, 2000))
       throw new HttpsError('internal', 'The AI returned an unreadable deck list — try again.')
     }
 
@@ -256,7 +247,7 @@ export const buildDeckWithAI = onCall(
     return {
       deckName: typeof parsed.deckName === 'string' ? parsed.deckName.slice(0, 100) : 'AI Deck',
       commander:
-        isCommander && typeof parsed.commander === 'string' ? parsed.commander.trim().slice(0, 200) : null,
+        typeof parsed.commander === 'string' ? parsed.commander.trim().slice(0, 200) : null,
       cards,
     }
   },

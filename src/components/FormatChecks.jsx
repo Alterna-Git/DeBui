@@ -2,13 +2,13 @@ function isBasicLand(card) {
   return card.types?.includes('Basic')
 }
 
-// Live deck-legality checklist. Checks only what it can know: cards saved
+// Live Commander-legality checklist. Checks only what it can know: cards saved
 // before color identity / legality data existed are skipped, never flagged.
-export default function FormatChecks({ format, main, commander }) {
+export default function FormatChecks({ main, commander }) {
   const total = main.reduce((n, c) => n + c.count, 0)
   const checks = []
 
-  if (format === 'commander') {
+  {
     checks.push({
       ok: !!commander,
       label: commander
@@ -46,15 +46,6 @@ export default function FormatChecks({ format, main, commander }) {
       label: illegal.length
         ? `Not legal in Commander: ${illegal.map((c) => c.name).join(', ')}`
         : 'All cards legal in Commander',
-    })
-  } else {
-    checks.push({ ok: total >= 60, label: `${total}/60 cards minimum` })
-    const overFour = main.filter((c) => c.count > 4 && !c.types?.includes('Land') && !isBasicLand(c))
-    checks.push({
-      ok: !overFour.length,
-      label: overFour.length
-        ? `More than 4 copies: ${overFour.map((c) => c.name).join(', ')}`
-        : 'Max 4 copies of each card (basic lands excepted)',
     })
   }
 

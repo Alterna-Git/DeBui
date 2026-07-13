@@ -57,7 +57,7 @@ function edhrecUrl(card, isCommanderPage) {
   return `https://edhrec.com/${isCommanderPage ? 'commanders' : 'cards'}/${slug}`
 }
 
-function CardRow({ card, isCommanderFormat, isTheCommander, onSetCommander, onChangeCount, onToggleBoard, onRemove }) {
+function CardRow({ card, isTheCommander, onSetCommander, onChangeCount, onToggleBoard, onRemove }) {
   const [preview, setPreview] = useState(null)
 
   function showPreview(e) {
@@ -101,7 +101,7 @@ function CardRow({ card, isCommanderFormat, isTheCommander, onSetCommander, onCh
       >
         ↗
       </a>
-      {isCommanderFormat && canBeCommander(card) && (
+      {canBeCommander(card) && (
         <button
           className={`icon-btn crown ${isTheCommander ? 'active' : ''}`}
           title={isTheCommander ? 'Remove as commander' : 'Make commander'}
@@ -121,7 +121,6 @@ function CardRow({ card, isCommanderFormat, isTheCommander, onSetCommander, onCh
 export default function DeckPanel({
   deck,
   onRename,
-  onSetFormat,
   onSetCommander,
   onChangeCount,
   onToggleBoard,
@@ -133,11 +132,7 @@ export default function DeckPanel({
   saving,
   user,
 }) {
-  const format = deck.format ?? 'standard'
-  const isCommanderFormat = format === 'commander'
-  const commander = isCommanderFormat
-    ? deck.cards.find((c) => c.id === deck.commanderId)
-    : null
+  const commander = deck.cards.find((c) => c.id === deck.commanderId)
 
   const main = deck.cards.filter((c) => c.board !== 'side')
   const side = deck.cards.filter((c) => c.board === 'side')
@@ -148,7 +143,7 @@ export default function DeckPanel({
     cards: main.filter((c) => c !== commander && primaryType(c) === t),
   })).filter((g) => g.cards.length)
 
-  const rowProps = { isCommanderFormat, onSetCommander, onChangeCount, onToggleBoard, onRemove }
+  const rowProps = { onSetCommander, onChangeCount, onToggleBoard, onRemove }
 
   return (
     <aside className="deck-panel">
@@ -158,17 +153,11 @@ export default function DeckPanel({
         onChange={(e) => onRename(e.target.value)}
         placeholder="Deck name"
       />
-      <select className="input format-select" value={format} onChange={(e) => onSetFormat(e.target.value)}>
-        <option value="standard">60-Card (Standard / Casual)</option>
-        <option value="commander">Commander (EDH)</option>
-      </select>
+      <FormatChecks main={main} commander={commander} />
 
-      <FormatChecks format={format} main={main} commander={commander} />
+      {deck.cards.length > 0 && <BracketInfo deck={deck} />}
 
-      {isCommanderFormat && deck.cards.length > 0 && <BracketInfo deck={deck} />}
-
-      {isCommanderFormat && (
-        <details className="rules-ref">
+      <details className="rules-ref">
           <summary>Commander rules &amp; basics</summary>
           <ul>
             <li>Exactly 100 cards including your commander; every other card is a single copy (basic lands excepted).</li>
@@ -179,10 +168,8 @@ export default function DeckPanel({
             <li>It's a multiplayer format — decks aim for fun, resilient games, usually with ~36–38 lands and plenty of ramp and card draw.</li>
           </ul>
         </details>
-      )}
 
-      {isCommanderFormat && (
-        <div className="deck-group commander-slot">
+      <div className="deck-group commander-slot">
           <h4>Commander</h4>
           {commander ? (
             <ul>
@@ -192,7 +179,6 @@ export default function DeckPanel({
             <p className="muted">Add a legendary creature, then crown it with ♛.</p>
           )}
         </div>
-      )}
 
       <ManaCurve cards={main} />
 

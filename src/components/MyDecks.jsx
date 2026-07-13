@@ -74,10 +74,8 @@ export default function MyDecks({ user, onOpenDeck }) {
             <div className="deck-list-item">
               <div>
                 <strong>{deck.name}</strong>
-                <span className="muted">
-                  {' '}— {count} cards{deck.format === 'commander' ? ' · Commander' : ''}
-                </span>
-                {deck.format === 'commander' && (() => {
+                <span className="muted"> — {count} cards</span>
+                {(() => {
                   const b = evaluateBracket(deck)
                   return (
                     <span className="bracket-chip" title={`Estimated bracket: ${b.name}`}>

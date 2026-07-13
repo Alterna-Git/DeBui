@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { buildDeckWithAI } from '../api/ai'
 
 export default function AiBuilder({ user, deck, onDeckBuilt }) {
-  const format = deck.format ?? 'standard'
   const lockedCount = deck.cards
     .filter((c) => c.board !== 'side')
     .reduce((n, c) => n + c.count, 0)
@@ -20,7 +19,7 @@ export default function AiBuilder({ user, deck, onDeckBuilt }) {
     setNotes([])
     setStatus('Asking the AI for a deck list…')
     try {
-      const { deckName, commander, cards, unresolved, notes: buildNotes } = await buildDeckWithAI(prompt, format, deck, setStatus)
+      const { deckName, commander, cards, unresolved, notes: buildNotes } = await buildDeckWithAI(prompt, deck, setStatus)
       onDeckBuilt(deckName, cards, commander)
       const totalCards = cards.reduce((n, c) => n + c.count, 0) + (commander ? 1 : 0)
       setStatus(`Done — ${totalCards} cards added to your deck.`)
@@ -42,16 +41,13 @@ export default function AiBuilder({ user, deck, onDeckBuilt }) {
     <section className="ai-builder">
       <h3>AI Deck Builder</h3>
       <p className="muted">
-        Describe the deck you want — archetype, colors, budget, favorite cards — and the
-        AI will draft a full{' '}
-        <strong>{format === 'commander' ? '100-card Commander deck (with a commander)' : '60-card deck'}</strong>{' '}
-        for you to edit. Switch the format in the deck panel.
+        Describe the deck you want — commander, theme, colors, budget, favorite cards —
+        and the AI will draft a full <strong>100-card Commander deck</strong> for you to edit.
       </p>
       {lockedCount > 0 && (
         <p className="muted">
           <strong>{lockedCount} card{lockedCount === 1 ? '' : 's'} already in your deck will be kept</strong> —
-          the AI builds around them and completes the deck
-          {format === 'commander' ? ' to exactly 100' : ''}.
+          the AI builds around them and completes the deck to exactly 100.
         </p>
       )}
       <form onSubmit={build}>

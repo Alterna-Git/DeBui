@@ -7,12 +7,9 @@ const BASICS = { W: 'Plains', U: 'Island', B: 'Swamp', R: 'Mountain', G: 'Forest
 // Sends the current deck to the coach function and returns its structured critique.
 export async function analyzeDeckWithAI(deck) {
   const main = deck.cards.filter((c) => c.board !== 'side')
-  const commander = deck.format === 'commander'
-    ? main.find((c) => c.id === deck.commanderId)
-    : null
+  const commander = main.find((c) => c.id === deck.commanderId)
   const call = httpsCallable(functions, 'analyzeDeck', { timeout: 300_000 })
   const { data } = await call({
-    format: deck.format ?? 'standard',
     commanderName: commander?.name ?? null,
     cards: main
       .filter((c) => c !== commander)
@@ -35,19 +32,16 @@ function fitsIdentity(card, identity) {
 // against Scryfall, then — for Commander — enforces the rules on the ADDITIONS
 // (color identity, banlist, singleton, exactly 100 cards). The user's own
 // locked cards are never removed; the deck panel checklist flags those instead.
-export async function buildDeckWithAI(prompt, format, currentDeck, onProgress) {
-  const isCommanderFormat = format === 'commander'
+export async function buildDeckWithAI(prompt, currentDeck, onProgress) {
   const mainExisting = (currentDeck?.cards ?? []).filter((c) => c.board !== 'side')
-  const existingCommander = isCommanderFormat
-    ? mainExisting.find((c) => c.id === currentDeck.commanderId) ?? null
-    : null
+  const existingCommander =
+    mainExisting.find((c) => c.id === currentDeck.commanderId) ?? null
   const lockedCards = mainExisting.filter((c) => c !== existingCommander)
 
   // 5-minute timeout: reasoning models can take a couple of minutes on a full deck.
   const call = httpsCallable(functions, 'buildDeckWithAI', { timeout: 300_000 })
   const { data } = await call({
     prompt,
-    format,
     existing: lockedCards.map((c) => ({ name: c.name, count: c.count })),
     commanderName: existingCommander?.name ?? null,
   })
@@ -110,10 +104,8 @@ export async function buildDeckWithAI(prompt, format, currentDeck, onProgress) {
     }
   }
 
-  if (!isCommanderFormat || !commander) {
-    if (isCommanderFormat && !commander) {
-      notes.push('No commander could be determined — additions merged without Commander enforcement.')
-    }
+  if (!commander) {
+    notes.push('No commander could be determined — additions merged without Commander enforcement.')
     const merged = lockedCards.map((c) => ({ ...c }))
     for (const a of additions) mergeInto(merged, a)
     return { deckName, commander, cards: merged, unresolved, notes }
