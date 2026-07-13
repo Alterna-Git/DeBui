@@ -9,6 +9,7 @@ import DeckPanel from './components/DeckPanel'
 import MyDecks from './components/MyDecks'
 import AiBuilder from './components/AiBuilder'
 import DeckCoach from './components/DeckCoach'
+import { ImportModal, ExportModal } from './components/ImportExport'
 
 const EMPTY_DECK = { id: null, name: 'Untitled Deck', format: 'standard', commanderId: null, cards: [] }
 
@@ -17,6 +18,7 @@ export default function App() {
   const [view, setView] = useState('search') // 'search' | 'ai' | 'decks'
   const [deck, setDeck] = useState(EMPTY_DECK)
   const [saving, setSaving] = useState(false)
+  const [modal, setModal] = useState(null) // 'import' | 'export' | null
 
   useEffect(() => onAuthStateChanged(auth, setUser), [])
 
@@ -107,6 +109,20 @@ export default function App() {
     }
   }
 
+  function handleImported({ cards, commander }) {
+    setDeck((cur) => ({
+      ...cur,
+      id: null,
+      name: cur.name && cur.name !== 'Untitled Deck' ? cur.name : 'Imported Deck',
+      format: commander ? 'commander' : cur.format,
+      commanderId: commander?.id ?? null,
+      cards: [
+        ...(commander ? [{ ...commander, count: 1, board: 'main' }] : []),
+        ...cards.filter((c) => !(commander && c.id === commander.id && c.board === 'main')),
+      ],
+    }))
+  }
+
   function handleAiDeck(deckName, cards, commander) {
     setDeck((cur) => ({
       ...cur,
@@ -174,8 +190,12 @@ export default function App() {
           onRemove={removeCard}
           onSave={handleSave}
           onClear={() => setDeck(EMPTY_DECK)}
+          onImport={() => setModal('import')}
+          onExport={() => setModal('export')}
         />
       </main>
+      {modal === 'import' && <ImportModal onClose={() => setModal(null)} onImported={handleImported} />}
+      {modal === 'export' && <ExportModal deck={deck} onClose={() => setModal(null)} />}
     </div>
   )
 }

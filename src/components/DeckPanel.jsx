@@ -105,6 +105,8 @@ export default function DeckPanel({
   onRemove,
   onSave,
   onClear,
+  onImport,
+  onExport,
   saving,
   user,
 }) {
@@ -200,6 +202,10 @@ export default function DeckPanel({
         <button className="btn" onClick={onClear} disabled={deck.cards.length === 0 && !deck.id}>
           New deck
         </button>
+      </div>
+      <div className="deck-actions">
+        <button className="btn" onClick={onImport}>Import</button>
+        <button className="btn" onClick={onExport} disabled={deck.cards.length === 0}>Export</button>
       </div>
       {!user && <p className="muted">Sign in to save decks.</p>}
     </aside>
