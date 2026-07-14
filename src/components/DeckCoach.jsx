@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { analyzeDeckWithAI, withWakeLock } from '../api/ai'
+import CardName from './CardName'
 
 const COUNT_LABELS = {
   lands: 'Lands',
@@ -100,8 +101,8 @@ export default function DeckCoach({ user, deck, onApplySwap }) {
               {analysis.suggestions.map((s, i) => (
                 <div key={i} className="swap-row">
                   <div className="swap-cards">
-                    <span className="swap-cut">− {s.cut}</span>
-                    <span className="swap-add">+ {s.add}</span>
+                    <span className="swap-cut">− <CardName name={s.cut} /></span>
+                    <span className="swap-add">+ <CardName name={s.add} /></span>
                   </div>
                   <p className="swap-reason">{s.reason}</p>
                   <button
@@ -126,7 +127,7 @@ export default function DeckCoach({ user, deck, onApplySwap }) {
               {analysis.howToPlay.keyCards.length > 0 && (
                 <ul className="howto-keycards">
                   {analysis.howToPlay.keyCards.map((k, i) => (
-                    <li key={i}><strong>{k.name}</strong>{k.role ? ` — ${k.role}` : ''}</li>
+                    <li key={i}><strong><CardName name={k.name} /></strong>{k.role ? ` — ${k.role}` : ''}</li>
                   ))}
                 </ul>
               )}

@@ -188,6 +188,12 @@ body {
 .deck-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: default; }
 .deck-name:hover { color: var(--series-1); }
 
+.card-name-hover {
+  cursor: default;
+  border-bottom: 1px dotted var(--muted);
+}
+.card-name-hover:hover { color: var(--series-1); border-bottom-color: var(--series-1); }
+
 .card-hover-preview {
   position: fixed;
   width: 244px;
