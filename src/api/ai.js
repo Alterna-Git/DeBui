@@ -76,6 +76,37 @@ export async function withWakeLock(work) {
   }
 }
 
+// Playtest: draw a REAL random hand client-side (honest shuffle of the actual
+// deck), then have the AI pilot a simulated game using exactly those draws.
+export async function playtestDeckWithAI(deck) {
+  const main = deck.cards.filter((c) => c.board !== 'side')
+  const commander = main.find((c) => c.id === deck.commanderId)
+
+  const pool = []
+  for (const c of main) {
+    if (c === commander) continue
+    for (let i = 0; i < c.count; i++) pool.push(c.name)
+  }
+  if (pool.length < 40) {
+    throw new Error('The deck is too small to playtest — add more cards first.')
+  }
+  // Fisher-Yates shuffle
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[pool[i], pool[j]] = [pool[j], pool[i]]
+  }
+  const hand = pool.slice(0, 7)
+  const library = pool.slice(7, 47) // covers ~10 turns of draws plus a mulligan
+
+  const { data } = await callResilient('playtestDeck', {
+    commanderName: commander?.name ?? null,
+    cards: main.filter((c) => c !== commander).map((c) => ({ name: c.name, count: c.count })),
+    hand,
+    library,
+  })
+  return { ...data, hand }
+}
+
 // Sends the current deck to the coach function and returns its structured critique.
 export async function analyzeDeckWithAI(deck) {
   const main = deck.cards.filter((c) => c.board !== 'side')

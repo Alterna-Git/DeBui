@@ -9,6 +9,7 @@ import DeckPanel from './components/DeckPanel'
 import MyDecks from './components/MyDecks'
 import AiBuilder from './components/AiBuilder'
 import DeckCoach from './components/DeckCoach'
+import Playtest from './components/Playtest'
 import { ImportModal, ExportModal } from './components/ImportExport'
 
 const EMPTY_DECK = { id: null, name: 'Untitled Deck', format: 'commander', commanderId: null, cards: [] }
@@ -146,6 +147,9 @@ export default function App() {
           <button className={view === 'coach' ? 'tab active' : 'tab'} onClick={() => setView('coach')}>
             Coach
           </button>
+          <button className={view === 'playtest' ? 'tab active' : 'tab'} onClick={() => setView('playtest')}>
+            Playtest
+          </button>
           <button className={view === 'decks' ? 'tab active' : 'tab'} onClick={() => setView('decks')}>
             My Decks
           </button>
@@ -167,6 +171,7 @@ export default function App() {
             />
           )}
           {view === 'coach' && <DeckCoach user={user} deck={deck} onApplySwap={applySwap} />}
+          {view === 'playtest' && <Playtest user={user} deck={deck} />}
           {view === 'decks' && (
             <MyDecks
               user={user}

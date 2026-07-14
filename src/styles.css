@@ -424,6 +424,38 @@ body {
 .howto-keycards li, .howto-stages li { color: var(--ink-secondary); }
 .howto-keycards strong, .howto-stages strong { color: var(--ink); }
 
+/* Playtest */
+.playtest { max-width: 720px; }
+.playtest h3 { margin-top: 0; }
+.game-log { margin-top: 18px; display: flex; flex-direction: column; gap: 16px; }
+.game-log h4 { margin: 0 0 6px; font-size: 14px; color: var(--ink-secondary); }
+.game-log ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+.hand-cards { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.hand-card {
+  background: var(--surface);
+  border: 1px solid var(--baseline);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 13px;
+}
+.turns { display: flex; flex-direction: column; gap: 10px; }
+.turn-row { display: flex; gap: 12px; align-items: flex-start; }
+.turn-num {
+  background: var(--series-1);
+  color: #fff;
+  font-weight: 700;
+  font-size: 12px;
+  border-radius: 6px;
+  padding: 3px 8px;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+.turn-body { flex: 1; }
+.turn-play { margin: 0 0 2px; font-size: 14px; }
+.turn-board { margin: 0; font-size: 12.5px; color: var(--muted); }
+.game-result { margin: 0; font-weight: 700; }
+.game-verdict { margin: 0; color: var(--ink-secondary); }
+
 .build-notes {
   margin: 8px 0 0;
   padding: 8px 10px 8px 26px;

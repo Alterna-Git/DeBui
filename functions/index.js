@@ -154,6 +154,68 @@ bring the total to exactly 100 — never repeat a locked card except basic lands
 Otherwise "cards" lists the 99 cards other than the commander (basic lands may use
 count > 1; never repeat the commander in "cards").`
 
+const PLAYTEST_SCHEMA = {
+  type: 'object',
+  properties: {
+    mulligan: {
+      type: 'object',
+      properties: {
+        decision: { type: 'string', enum: ['keep', 'mulligan'] },
+        reason: { type: 'string' },
+      },
+      required: ['decision', 'reason'],
+      additionalProperties: false,
+    },
+    turns: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          turn: { type: 'integer' },
+          play: { type: 'string' },
+          board: { type: 'string' },
+        },
+        required: ['turn', 'play', 'board'],
+        additionalProperties: false,
+      },
+    },
+    result: { type: 'string' },
+    verdict: { type: 'string' },
+    observations: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['mulligan', 'turns', 'result', 'verdict', 'observations'],
+  additionalProperties: false,
+}
+
+const SYSTEM_PROMPT_PLAYTEST = `You are playtesting a Commander (EDH) deck by simulating a game,
+honestly and realistically. You are given the decklist, the commander, the drawn opening hand,
+and the exact order of the top of the library.
+
+STRICT draw rules: every card you draw must come from the provided library order, in order, no
+exceptions and no rearranging. If an effect draws N cards, take the next N from the order. If
+you tutor or search, you may pick any card from the decklist not already drawn — note that you
+tutored it (tutoring does not change the library order).
+
+Mulligan: evaluate the opening hand honestly. If you would mulligan, take the NEXT 7 cards from
+the library order as the new hand, then continue drawing from where that left off.
+
+Opponents: assume a typical casual 4-player Commander pod. Be realistic: opponents develop their
+own boards, present blockers, and answer threats at a plausible rate — your key pieces will not
+all survive. Include at least one realistic piece of disruption when the pod would plausibly
+answer what you are doing, and factor it into the rest of the game.
+
+Simulate turn by turn until the deck wins, clearly stalls out, or turn 10 — whichever comes
+first. Each turn: the draw, land drop, plays with correct mana math, attacks, and what happened.
+Be honest about failures — mana screw, dead cards, slow starts. This is a diagnostic tool, not
+a highlight reel.
+
+Field guidance:
+- turns[].play: what happened that turn (2-4 sentences; name cards exactly as printed)
+- turns[].board: one-line summary of your board, hand size, and life pressure at end of turn
+- result: how the game ended and on which turn
+- verdict: 2-3 honest sentences on how the deck performed in this game
+- observations: 3-5 specific takeaways — what worked, what was dead in hand, what to watch`
+
 const SYSTEM_PROMPT_COACH = `You are a professional Magic: The Gathering deck coach.
 Analyze the Commander (EDH) deck the user provides and give honest, specific, actionable
 advice. Respect color identity and singleton in every suggestion. "cut" must name a card
@@ -290,6 +352,70 @@ export const buildDeckWithAI = onCall(
       deckName: parsed.deckName.slice(0, 100) || 'AI Deck',
       commander: parsed.commander.trim().slice(0, 200) || null,
       cards,
+    }
+  }),
+)
+
+export const playtestDeck = onCall(
+  { secrets: [anthropicApiKey], timeoutSeconds: 540 },
+  (request) => withJobResult(request, async () => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Sign in to playtest your deck.')
+    }
+    const cleanNames = (v, max) =>
+      (Array.isArray(v) ? v.slice(0, max) : [])
+        .filter((s) => typeof s === 'string' && s.trim())
+        .map((s) => s.trim().slice(0, 200))
+
+    const hand = cleanNames(request.data?.hand, 7)
+    const library = cleanNames(request.data?.library, 60)
+    const cards = (Array.isArray(request.data?.cards) ? request.data.cards.slice(0, 200) : [])
+      .filter((c) => typeof c?.name === 'string' && c.name.trim())
+      .map((c) => ({
+        name: c.name.trim().slice(0, 200),
+        count: Number.isFinite(c.count) ? Math.min(Math.max(Math.round(c.count), 1), 99) : 1,
+      }))
+    if (hand.length < 5 || library.length < 15 || !cards.length) {
+      throw new HttpsError('invalid-argument', 'The deck is too small to playtest — add more cards first.')
+    }
+    const commanderName =
+      typeof request.data?.commanderName === 'string' && request.data.commanderName.trim()
+        ? request.data.commanderName.trim().slice(0, 200)
+        : null
+
+    const userContent = [
+      commanderName ? `Commander: ${commanderName}` : null,
+      `Decklist:\n${cards.map((c) => `${c.count} ${c.name}`).join('\n')}`,
+      `Opening hand (7 cards, already drawn):\n${hand.join('\n')}`,
+      `Library order (draw from the top, in this exact order):\n${library.map((n, i) => `${i + 1}. ${n}`).join('\n')}`,
+    ].filter(Boolean).join('\n\n')
+
+    const parsed = await callClaude({
+      system: SYSTEM_PROMPT_PLAYTEST,
+      user: userContent,
+      schema: PLAYTEST_SCHEMA,
+      effort: 'high',
+      maxTokens: 64000,
+    })
+
+    return {
+      mulligan: {
+        decision: parsed.mulligan.decision,
+        reason: parsed.mulligan.reason.slice(0, 400),
+      },
+      turns: parsed.turns
+        .map((t) => ({
+          turn: Math.min(Math.max(Math.round(t.turn), 0), 30),
+          play: t.play.slice(0, 800),
+          board: t.board.slice(0, 300),
+        }))
+        .slice(0, 15),
+      result: parsed.result.slice(0, 300),
+      verdict: parsed.verdict.slice(0, 600),
+      observations: parsed.observations
+        .filter((s) => typeof s === 'string')
+        .map((s) => s.slice(0, 300))
+        .slice(0, 6),
     }
   }),
 )
