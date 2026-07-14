@@ -48,7 +48,7 @@ export default function DeckCoach({ user, deck, onApplySwap }) {
         what works, what's missing, and specific swaps to make it better.
       </p>
       <button className="btn btn-primary" onClick={analyze} disabled={busy || mainCount === 0}>
-        {busy ? 'Analyzing… (this takes a minute)' : analysis ? 'Re-analyze deck' : 'Analyze deck'}
+        {busy ? 'Analyzing deeply… (this can take a few minutes)' : analysis ? 'Re-analyze deck' : 'Analyze deck'}
       </button>
       {mainCount === 0 && <p className="muted">Add cards to your deck first.</p>}
       {error && <p className="error">{error}</p>}

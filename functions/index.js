@@ -160,10 +160,21 @@ advice. Respect color identity and singleton in every suggestion. "cut" must nam
 actually in the deck; "add" must be a real card, spelled exactly as printed, legal in
 Commander, and within the commander's color identity.
 
+Suggestions quality bar (IMPORTANT): first identify the deck's game plan, then vet every
+swap against it — think twice before including one. A suggestion is only valid when:
+- the added card actively advances this deck's specific game plan or fixes a weakness you
+  identified in this analysis — never a generic "staple upgrade" that ignores the theme
+- if the cut card plays a synergy role, the added card serves that role at least as well;
+  never cut a synergy piece for a generically stronger but off-plan card
+- the reason names the specific synergy or problem the swap addresses in this deck
+After drafting your suggestions, re-review each one and delete any you would not
+confidently defend to an experienced player of this archetype. Quality over quantity:
+3 excellent swaps beat 8 mediocre ones — do not pad the list.
+
 Field guidance:
 - rating: 1-10 honest power assessment
 - counts: what the deck currently has; targets: what this archetype wants
-- suggestions: up to 8, most impactful first
+- suggestions: up to 8 vetted swaps, most impactful first (fewer is fine)
 - plan: 3-5 ordered steps for how to test and keep improving this deck
 - howToPlay: written so a brand-new pilot can play the deck — gameplan (2-3 sentences on
   how it wins), up to 5 keyCards actually in the deck with when/why to play them,
@@ -171,22 +182,23 @@ Field guidance:
   late (turn 7+) priorities.`
 
 // Calls Claude with schema-enforced JSON output and converts every failure
-// mode into an HttpsError with a message the app can show.
-async function callClaude({ system, user, schema }) {
+// mode into an HttpsError with a message the app can show. Streams the
+// response so large thinking budgets don't hit HTTP timeouts.
+async function callClaude({ system, user, schema, effort = 'high', maxTokens = 16000 }) {
   const client = new Anthropic({ apiKey: anthropicApiKey.value() })
   let response
   try {
-    response = await client.messages.create({
+    response = await client.messages.stream({
       model: MODEL,
-      max_tokens: 16000,
+      max_tokens: maxTokens,
       thinking: { type: 'adaptive' },
       output_config: {
-        effort: 'high',
+        effort,
         format: { type: 'json_schema', schema },
       },
       system,
       messages: [{ role: 'user', content: user }],
-    })
+    }).finalMessage()
   } catch (err) {
     if (err instanceof Anthropic.RateLimitError) {
       throw new HttpsError('resource-exhausted', 'The AI service is busy right now — try again in a minute.')
@@ -283,7 +295,7 @@ export const buildDeckWithAI = onCall(
 )
 
 export const analyzeDeck = onCall(
-  { secrets: [anthropicApiKey], timeoutSeconds: 300 },
+  { secrets: [anthropicApiKey], timeoutSeconds: 540 },
   (request) => withJobResult(request, async () => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', 'Sign in to use the deck coach.')
@@ -308,10 +320,14 @@ export const analyzeDeck = onCall(
       `Deck list:\n${cards.map((c) => `${c.count} ${c.name}`).join('\n')}`,
     ].filter(Boolean).join('\n\n')
 
+    // xhigh: deepest practical reasoning tier — the coach vets swap synergy
+    // carefully. Large max_tokens gives the extra thinking room to land.
     const parsed = await callClaude({
       system: SYSTEM_PROMPT_COACH,
       user: userContent,
       schema: COACH_SCHEMA,
+      effort: 'xhigh',
+      maxTokens: 64000,
     })
 
     const strings = (v, max) => v.filter((s) => typeof s === 'string').slice(0, max)
